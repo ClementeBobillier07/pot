@@ -135,13 +135,16 @@ final class PlantTests: XCTestCase {
         XCTAssertEqual(samples.map { PlantEngine.flowerStage(progress: $0, ageHours: 24) }, FlowerStage.allCases)
         var state = PlantState(seed: 80, provider: .codex, createdAt: start)
         var events: [UsageEvent] = []
+        // Flowers live about a week and new buds appear every 3–7 days, so check that at some
+        // point several coexist at independent stages rather than at one arbitrary day.
+        var bestDistinct = 0
         for day in 0..<90 {
             events.append(event(Double(day) * 86400 + 3600, 150_000))
             PlantEngine.advance(state: &state, events: events, now: start.addingTimeInterval(Double(day + 1) * 86400))
+            let flowers = state.organs.filter { $0.kind == .flower }
+            bestDistinct = max(bestDistinct, Set(flowers.map(\.maturation)).count)
         }
-        let flowers = state.organs.filter { $0.kind == .flower }
-        XCTAssertGreaterThan(flowers.count, 1)
-        XCTAssertGreaterThan(Set(flowers.map(\.maturation)).count, 1)
+        XCTAssertGreaterThan(bestDistinct, 1)
     }
     func testPausedGardenFreezesBiologyAndDoesNotBankPausedUsage() {
         var plant = PlantState(seed: 7, provider: .codex, createdAt: start)

@@ -48,7 +48,7 @@ Host: macOS 27.0.1, Apple Silicon, Xcode with Swift 6.4.2. Real local logs from 
 | Check | Result |
 |---|---|
 | `swift build` (debug/release) | Pass; Sendable warnings removed |
-| `swift test` | **39 passed**, 0 failures (5 new real-format regression tests) |
+| `swift test` | **44 passed**, 0 failures (real-format regressions, pause, periods, export, coverage) |
 | Real Codex reconciliation | 6,357 calls / 1,392,511,987 tokens = independent oracle (final cumulative counters per session), categories match; 0 incomplete files |
 | Real Claude reconciliation | 15,964 messages / 6,581,321,556 tokens = independent oracle (dedup by message id); 0 incomplete files |
 | Replay / restart | 0 events added on re-scan |
@@ -61,3 +61,9 @@ Host: macOS 27.0.1, Apple Silicon, Xcode with Swift 6.4.2. Real local logs from 
 Defects found only with real data or a real Mac, now fixed: Codex `.zst` archives were skipped (97 % of history); real 10–17 MiB non-usage records marked files partial and froze plant health; Codex `cache_write_input_tokens` was ignored; Codex per-session account evidence ignored; every Claude event was marked partial because `inference_geo:"global"` was treated as non-standard; Claude 5.5 models were missing from the price catalog (Haiku 5.5 prompt tiers added); zero-token `<synthetic>` messages made estimates partial; a login identity created a permanently empty plant; calibration never adapted to heavy usage; an empty "Pot Settings" window opened at launch; first import advanced 64 MiB per minute; 3 GB peak memory while importing; "Chart unit" label wrapped.
 
 Not yet verified: hover/drag/click-through interaction, Spaces/full screen, multiple displays, sleep/wake, launch at login from /Applications, VoiceOver, Developer ID signing and notarization, clean-Mac install.
+
+### Added after verification (same day)
+
+- Plant illustration redrawn in the landing's two families (Codex eucalyptus/sage pot, Claude slender leaves/terracotta), with visible health (droop, yellowing), seven flower stages and balanced branch placement. `Pot --render-plants DIR` writes synthetic renders (days 0–365, rest, floating light/dark) without touching user data.
+- Pause the garden (engine + Settings + menu bar), periods Today / 7 days / 30 days / All, coverage ("Data since … · N calls · read …"), local JSON export without identifiers, onboarding/Settings corner choice, menu bar Presentation submenu.
+- CI workflow (Swift on macOS, landing on Linux), beta kit (docs/BETA.md, issue template), release checklist (docs/RELEASE.md).

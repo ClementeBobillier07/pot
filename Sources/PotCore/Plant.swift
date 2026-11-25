@@ -315,8 +315,8 @@ public enum PlantEngine {
         state.retiredOrgans += Int64(oldCount - state.organs.count)
     }
 
-    private static func attachment(state: inout PlantState) -> PlantOrgan? {
-        let branches = state.organs.filter { ($0.kind == .stem || $0.kind == .branch) && $0.maturation >= 0.9 }
+    private static func attachment(state: inout PlantState, allowing: (PlantOrgan) -> Bool = { _ in true }) -> PlantOrgan? {
+        let branches = state.organs.filter { ($0.kind == .stem || $0.kind == .branch) && $0.maturation >= 0.9 && allowing($0) }
         guard !branches.isEmpty else { return nil }
         return branches[min(branches.count - 1, Int(state.random() * Double(branches.count)))]
     }
@@ -334,9 +334,13 @@ public enum PlantEngine {
         let stems = state.organs.filter { $0.kind == .stem }.sorted { $0.endY > $1.endY }
         guard let top = stems.last else { return }
         let canExtend = top.endY > 0.25 && stems.count < 4 && top.maturation >= 0.9
-        let parent = canExtend ? top : (attachment(state: &state) ?? top)
+        // Side branches attach to the main stem or first-order branches only, so chains cannot
+        // creep toward one edge, and each grows toward the lighter side to keep the plant balanced.
+        let stemIDs = Set(stems.map(\.id))
+        let parent = canExtend ? top : (attachment(state: &state, allowing: { $0.kind == .stem || stemIDs.contains($0.parentID ?? "") }) ?? top)
         let point = parent.endpoint
-        let direction = state.random() > 0.5 ? 1.0 : -1.0
+        let weight = state.organs.filter { $0.kind != .stem }.reduce(0.0) { $0 + ($1.endX - 0.5) * ($1.kind == .branch ? 3 : 1) }
+        let direction = abs(weight) < 0.05 ? (state.random() > 0.5 ? 1.0 : -1.0) : (weight > 0 ? -1.0 : 1.0)
         let dx = canExtend ? (state.random() - 0.5) * 0.045 : direction * (0.10 + state.random() * 0.10)
         let dy = canExtend ? 0.12 : 0.05 + state.random() * 0.08
         let kind: OrganKind = canExtend ? .stem : .branch

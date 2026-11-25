@@ -135,8 +135,11 @@ final class FloatingPlantController {
         panel.ignoresMouseEvents = !hit
     }
     /// Transparent blank space passes through until the pointer enters the plant silhouette.
-    private func plantContains(_ point: CGPoint, plant: PlantState) -> Bool {
-        if CGRect(x: 95, y: 308, width: 130, height: 85).contains(point) { return true }
+    private func plantContains(_ rawPoint: CGPoint, plant: PlantState) -> Bool {
+        if CGRect(x: 95, y: 308, width: 130, height: 85).contains(rawPoint) { return true }
+        // Mature plants are drawn slightly zoomed out around the pot; undo that before testing organs.
+        let scale = PlantLayout.fitScale(plant), a = PlantLayout.anchor
+        let point = scale < 1 ? CGPoint(x: a.x + (rawPoint.x - a.x) / scale, y: a.y + (rawPoint.y - a.y) / scale) : rawPoint
         for organ in plant.organs {
             let start = CGPoint(x: organ.x * 320, y: organ.y * 400)
             if organ.kind == .stem || organ.kind == .branch {
