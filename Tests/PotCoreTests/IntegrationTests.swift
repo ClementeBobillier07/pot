@@ -68,7 +68,8 @@ final class IntegrationTests:XCTestCase {
         defer{try? FileManager.default.removeItem(at:external)}
         try line(claude()).write(to:external)
         try FileManager.default.createSymbolicLink(at:root.appendingPathComponent("escape.jsonl"),withDestinationURL:external)
-        try Data("not json\n".utf8).write(to:root.appendingPathComponent("malformed.jsonl"))
+        // Unparseable text without a usage marker is not usage; a broken usage-bearing record is partial.
+        try Data("not json\n{\"type\":\"assistant\",\"message\":{\n".utf8).write(to:root.appendingPathComponent("malformed.jsonl"))
         let report=try i.scan(root:root,provider:.claude)
         XCTAssertEqual(report.incompleteFiles,1);XCTAssertEqual(try db.events().count,0)
     }
@@ -89,9 +90,15 @@ final class IntegrationTests:XCTestCase {
     }
     func testOversizedLineIsDiscardedAndFollowingMetricsRecovered() throws {
         let db=try store(),file=root.appendingPathComponent("oversized.jsonl")
+        // Real Claude Code prompt blobs exceed 3 MiB; an oversized record without usage is skipped silently.
         try (Data(repeating:65,count:4*1024*1024+1)+Data([10])+line(claude())).write(to:file)
         let report=try LogIngestor(store:db).scanFile(file,provider:.claude)
-        XCTAssertEqual(report.incompleteFiles,1);XCTAssertEqual(try db.events().count,1)
+        XCTAssertEqual(report.incompleteFiles,0);XCTAssertEqual(try db.events().count,1)
+        // An oversized assistant record could hide usage, so it keeps coverage partial.
+        let relevant=root.appendingPathComponent("oversized-assistant.jsonl")
+        try (Data("{\"type\":\"assistant\",\"pad\":\"".utf8)+Data(repeating:65,count:4*1024*1024+1)+Data("\"}\n".utf8)+line(claude(id:"after"))).write(to:relevant)
+        XCTAssertEqual(try LogIngestor(store:db).scanFile(relevant,provider:.claude).incompleteFiles,1)
+        XCTAssertEqual(try db.events().count,2)
     }
     func testPricesHaveExactCacheSemanticsAndMissingCategoriesStayPartial() throws {
         let catalog=try PriceCatalog.bundled()
@@ -212,5 +219,70 @@ final class IntegrationTests:XCTestCase {
         _=CodexAdapter.parse(["type":"turn_context","payload":["model":"gpt-5.2","service_tier":"priority"]],state:&state)
         let event=try XCTUnwrap(CodexAdapter.parse(codex(100,20,10),state:&state).event)
         XCTAssertTrue(try PriceCatalog.bundled().estimate([event]).partial)
+    }
+    // MARK: Formats verified against real local logs on macOS, 2026-11-25 (structure only, synthetic values).
+
+    /// Synthetic Codex rollout compressed with zstd 1.5.7 (`zstd -19`): session_meta with
+    /// creator_account_id, turn_context, a 20 KB tool output, two token_usage_records and a
+    /// duplicate legacy token_count snapshot.
+    static let codexArchive="KLUv/WTyVCUPAGYVQyAwrx4jzEsML9pU7MJiV29s9rkKJRqLelkb0yloiIkCAzgAPAA4APal39mZqC1pMYzUumn5nsVqKcaOXcN8Ny5qTFZqXdtNQ5xzAeci+CoIOu85A+hgR61l8rFn9DsT29YIiZqqKDWmalpQ0l/88c98H1caHcuIM+n75CsGN11RjITBUPia7ZyyaYW0YDiGqZIOFfVYNI3XcY43Wav0WtLvZPqNfkmcY3WK/edxdJS1zzZimJyxZknmX62G/ULYmMXOCwyc1652y2bvq52x3vzvAbaAbdvc857nPfgQHCRAD0IIeiyxaCWVXjiLX73iAkGzOQiTbx/Gq9JqMRT96bXEQbR8MuXs5kWN4wdWoFHBQWpmhKawIKXGgESEbIprDh8gk22ACLX3cFK6mTK9zHNgiGkzNoXiUcxMYZDUSZESM3xqQtyDAQxBEJJcSFRe/T9RUPMMkDxZjY5ixQKQOCNjAguso0kAa+BcLHpE2P5Jk8ZumXGDXJnzrQVIe19KCiueFE7tuh890on0J3ZVZ11cBlk8c0udRCKHA97zjqW4EMLFsgwCKE0Oa82bq9+k9wVkAQ2XaQBYrNJMNDtXCYv3PkTb2BMBMAMyiwyEmpJskFo7aWhvVFAwAhXxAL8CWA1R4nHF"
+
+    func testCodexZstdArchiveIsDecodedDeduplicatedAndAttributed() throws {
+        let db=try store(),file=root.appendingPathComponent("rollout-synthetic.jsonl.zst")
+        try Data(base64Encoded:Self.codexArchive)!.write(to:file)
+        let report=try LogIngestor(store:db).scan(root:root,provider:.codex)
+        XCTAssertEqual(report.insertedEvents,2);XCTAssertEqual(report.incompleteFiles,0)
+        let events=try db.events()
+        XCTAssertEqual(events.reduce(0){$0+$1.totalTokens},3130)
+        XCTAssertEqual(events.reduce(0){$0+$1.input},800)      // input minus cached minus cache write
+        XCTAssertEqual(events.reduce(0){$0+$1.cacheRead},2100)
+        XCTAssertEqual(events.reduce(0){$0+$1.cacheWrite},100)
+        XCTAssertEqual(events.reduce(0){$0+$1.output},130)
+        XCTAssertEqual(Set(events.map(\.model)),["gpt-6.1-sol"])
+        // creator_account_id is explicit per-session evidence, stored only as a pseudonym.
+        XCTAssertEqual(Set(events.compactMap(\.accountID)),["codex:account:"+metricID("SYNTHETIC-ACCOUNT")])
+        let raw=try Data(contentsOf:root.appendingPathComponent("pot.sqlite"))
+        XCTAssertFalse(String(decoding:raw,as:UTF8.self).contains("SYNTHETIC-ACCOUNT"))
+        XCTAssertFalse(String(decoding:raw,as:UTF8.self).contains("SENSITIVE_SENTINEL"))
+        // Unchanged archive is skipped; the same session re-exported as plain JSONL adds nothing.
+        XCTAssertEqual(try LogIngestor(store:db).scan(root:root,provider:.codex).insertedEvents,0)
+    }
+    func testCorruptZstdArchiveIsPartialNotZero() throws {
+        let db=try store()
+        var bytes=Data(base64Encoded:Self.codexArchive)!;bytes.removeLast(40)
+        try bytes.write(to:root.appendingPathComponent("broken.jsonl.zst"))
+        let report=try LogIngestor(store:db).scan(root:root,provider:.codex)
+        XCTAssertEqual(report.incompleteFiles,1)
+    }
+    func testCodexHugeIrrelevantRecordsDoNotMarkCoveragePartial() throws {
+        let db=try store(),file=root.appendingPathComponent("rollout.jsonl")
+        let huge=Data("{\"timestamp\":\"2026-11-25T12:00:00Z\",\"ordinal\":2,\"type\":\"response_item\",\"payload\":{\"type\":\"custom_tool_call_output\",\"output\":\"".utf8)+Data(repeating:66,count:17*1024*1024)+Data("\"}}\n".utf8)
+        try (codexHeader()+huge+line(codex(1000,100,200))).write(to:file)
+        var report=try LogIngestor(store:db).scanFile(file,provider:.codex)
+        while report.truncatedWork {report=try LogIngestor(store:db).scanFile(file,provider:.codex)}
+        XCTAssertEqual(report.incompleteFiles,0);XCTAssertEqual(try db.events().count,1)
+    }
+    func testClaudeGlobalInferenceIsStandardPricingAndSyntheticMessagesAreSkipped() throws {
+        let db=try store(),file=root.appendingPathComponent("claude.jsonl")
+        var standard=claude(id:"standard");var m=standard["message"] as! [String:Any];var u=m["usage"] as! [String:Any]
+        u["inference_geo"]="global";u["speed"]="standard";u["service_tier"]="standard";m["usage"]=u;m["model"]="claude-opus-5-5";standard["message"]=m
+        var us=standard;var m2=us["message"] as! [String:Any];var u2=m2["usage"] as! [String:Any];u2["inference_geo"]="us";m2["usage"]=u2;m2["id"]="us-only";us["message"]=m2
+        let synthetic:[String:Any]=["type":"assistant","timestamp":"2026-11-25T12:00:00Z","message":["id":"synthetic","model":"<synthetic>","usage":["input_tokens":0,"output_tokens":0,"cache_read_input_tokens":0,"cache_creation_input_tokens":0]]]
+        try (line(standard)+line(us)+line(synthetic)).write(to:file)
+        _=try LogIngestor(store:db).scanFile(file,provider:.claude)
+        let events=try db.events()
+        XCTAssertEqual(events.count,2)
+        XCTAssertEqual(events.first{$0.model=="claude-opus-5-5" && $0.cacheRead==30 && !$0.pricingIncomplete}?.id,"claude:"+metricID("standard"))
+        XCTAssertTrue(events.first{$0.id=="claude:"+metricID("us-only")}!.pricingIncomplete) // 1.1x US-only multiplier is not modelled
+    }
+    func testClaudeFiveFiveRatesAndHaikuPromptTiers() throws {
+        let catalog=try PriceCatalog.bundled()
+        let opus=UsageEvent(id:"o",provider:.claude,timestamp:Date(),model:"claude-opus-5-5",input:1_000_000,output:1_000_000,cacheRead:1_000_000,cacheWrite:1_000_000,cacheWrite5m:1_000_000,cacheWrite1h:0)
+        XCTAssertEqual(catalog.estimate([opus]).amount,Decimal(string:"29.2")) // 4 + 20 + 0.20 + 5
+        let small=UsageEvent(id:"h1",provider:.claude,timestamp:Date(),model:"claude-haiku-5-5",input:50_000,output:1_000_000,cacheRead:50_000)
+        XCTAssertEqual(catalog.estimate([small]).amount,Decimal(string:"0.5055")) // 0.005 + 0.5 + 0.0005
+        let large=UsageEvent(id:"h2",provider:.claude,timestamp:Date(),model:"claude-haiku-5-5",input:100_000,output:1_000_000,cacheRead:100_000)
+        XCTAssertEqual(catalog.estimate([large]).amount,Decimal(string:"2.555")) // >100K prompt: 0.05 + 2.5 + 0.005
+        XCTAssertFalse(catalog.estimate([small,large]).partial)
     }
 }

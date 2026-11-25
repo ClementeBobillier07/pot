@@ -1,6 +1,8 @@
 # Implementation plan
 
-Status: available implementation/QA handed off, native acceptance **blocked**. Discovery ran on Debian Linux x86_64, 2026-11-25. The repository was empty. Native acceptance remains blocked by the absence of macOS/Xcode; implementation is not proof of native behavior.
+Status (2026-11-25, macOS): native build, tests, real-data reconciliation, app launch and local universal DMG **verified on a Mac**; interactive UI QA, beta and signed release remain. See BASELINE.md "macOS verification".
+
+Original status: available implementation/QA handed off, native acceptance **blocked**. Discovery ran on Debian Linux x86_64, 2026-11-25. The repository was empty. Native acceptance remains blocked by the absence of macOS/Xcode; implementation is not proof of native behavior.
 
 | Phase | State | Exit evidence |
 |---|---|---|

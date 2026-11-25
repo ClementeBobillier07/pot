@@ -24,7 +24,8 @@ public struct ScanReport:Sendable {
 public final class LogIngestor {
     private let store:PotStore
     public init(store:PotStore){self.store=store}
-    /// Bounded 32 MiB per file/pass, 4 MiB per line, 10,000 files/pass; unfinished work is resumed.
+    /// Bounded 32 MiB per plain file/pass, 4 MiB per relevant line (16 MiB in archives), 10,000 files/pass; unfinished work is resumed.
+    /// Archived `.jsonl.zst` files are decoded whole (bounded at 4 GiB output) and count their compressed size against the pass budget.
     public func scan(root:URL,provider:Provider) throws -> ScanReport {
         let fm=FileManager.default
         let canonical=root.standardizedFileURL.resolvingSymlinksInPath()
@@ -39,12 +40,12 @@ public final class LogIngestor {
             let values=try url.resourceValues(forKeys:keys)
             if values.isSymbolicLink==true {files.skipDescendants();continue}
             guard values.isRegularFile==true else{continue}
-            if url.pathExtension=="zst" {report.incompleteFiles += 1;continue}
-            guard url.pathExtension=="jsonl" else{continue}
+            let compressed=url.lastPathComponent.hasSuffix(".jsonl.zst")
+            guard compressed || url.pathExtension=="jsonl" else{continue}
             let resolved=url.resolvingSymlinksInPath().standardizedFileURL
             guard resolved.path.hasPrefix(canonical.path+"/") else{report.incompleteFiles += 1;continue}
             do {
-                let r=try scanFile(resolved,provider:provider)
+                let r=try compressed ? scanCompressedFile(resolved,provider:provider) : scanFile(resolved,provider:provider)
                 report.filesScanned += 1;report.insertedEvents += r.insertedEvents;report.incompleteFiles += r.incompleteFiles
                 report.bytesRead += r.bytesRead
                 report.truncatedWork = report.truncatedWork || r.truncatedWork
@@ -69,34 +70,35 @@ public final class LogIngestor {
         }
         if cursor.offset==length {var r=ScanReport();r.incompleteFiles=cursor.incomplete ? 1:0;return r}
         try file.seek(toOffset:cursor.offset)
-        var buffer=Data(),events=[UsageEvent](),consumed:UInt64=0,complete=cursor.offset
-        var oversized=cursor.discardingLine
-        var absolute=cursor.offset
+        var events=[UsageEvent](),consumed:UInt64=0,complete=cursor.offset
+        var scanner=LineScanner(provider:provider,resumeDiscarding:cursor.discardingLine)
+        var parser=cursor.parser
+        var parseIncomplete=false
         let budget:UInt64=32*1024*1024
         while consumed<budget {
-            let chunk=try file.read(upToCount:64*1024) ?? Data()
-            if chunk.isEmpty{break};consumed += UInt64(chunk.count)
-            for byte in chunk {
-                absolute += 1
-                if byte==10 {
-                    complete=absolute
-                    if oversized {cursor.incomplete=true}
-                    else if !buffer.isEmpty {
-                        if let object=(try? JSONSerialization.jsonObject(with:buffer)) as? [String:Any] {
-                            let r=provider == .codex ? CodexAdapter.parse(object,state:&cursor.parser) : ClaudeAdapter.parse(object,state:&cursor.parser)
-                            if let event=r.event{events.append(event)};cursor.incomplete = cursor.incomplete || r.incomplete
-                        } else {cursor.incomplete=true}
-                    }
-                    buffer.removeAll(keepingCapacity:true);oversized=false
-                } else if !oversized {
-                    if buffer.count<4*1024*1024 {buffer.append(byte)}
-                    else {oversized=true;buffer.removeAll(keepingCapacity:true)}
+            // Drain Foundation temporaries (JSON objects, Data) per chunk; without it peak memory reached ~3 GB on real logs.
+            let done:Bool=try autoreleasepool {
+                let chunk=try file.read(upToCount:256*1024) ?? Data()
+                if chunk.isEmpty{return true}
+                let chunkStart=cursor.offset+consumed
+                consumed += UInt64(chunk.count)
+                chunk.withUnsafeBytes { raw in
+                    scanner.feed(raw, record: { line in
+                        let r=Self.parse(line,provider:provider,state:&parser)
+                        if let event=r.event{events.append(event)};parseIncomplete = parseIncomplete || r.incomplete
+                    }, lineEnded: { complete=chunkStart+UInt64($0) })
                 }
+                return false
             }
+            if done{break}
         }
-        let partial = !buffer.isEmpty || oversized
+        cursor.parser=parser
+        cursor.incomplete = cursor.incomplete || parseIncomplete || scanner.incomplete
+        // A trailing record still being written is simply re-read next pass; it is not data loss.
+        let oversized=scanner.discardingCurrentLine
         let position=try file.offset()
-        if oversized {complete=position;cursor.incomplete=true}
+        // A skipped (irrelevant or oversized) record need not be re-read on the next pass.
+        if oversized {complete=position}
         cursor.discardingLine=oversized
         cursor.offset=complete
         cursor.prefixLength=Int(min(cursor.offset,4096))
@@ -108,7 +110,47 @@ public final class LogIngestor {
         report.newestEvent=events.map(\.timestamp).max()
         report.bytesRead=consumed
         report.truncatedWork=position<length
-        report.incompleteFiles=(cursor.incomplete || partial || report.truncatedWork) ? 1:0
+        report.incompleteFiles=(cursor.incomplete || report.truncatedWork) ? 1:0
+        return report
+    }
+    static func parse(_ line:Data,provider:Provider,state:inout ParserState)->ParseResult {
+        guard let object=(try? JSONSerialization.jsonObject(with:line)) as? [String:Any] else{return ParseResult(incomplete:true)}
+        return provider == .codex ? CodexAdapter.parse(object,state:&state) : ClaudeAdapter.parse(object,state:&state)
+    }
+    /// Archived rollouts are immutable: decode once, commit atomically, skip while size/mtime/inode are unchanged.
+    public func scanCompressedFile(_ url:URL,provider:Provider) throws -> ScanReport {
+        let attributes=try FileManager.default.attributesOfItem(atPath:url.path)
+        guard attributes[.type] as? FileAttributeType == .typeRegular else{throw CocoaError(.fileReadUnsupportedScheme)}
+        let identity="\(attributes[.systemNumber] ?? ""):\(attributes[.systemFileNumber] ?? "")"
+        let length=(attributes[.size] as? NSNumber)?.uint64Value ?? 0
+        let modificationTime=(attributes[.modificationDate] as? Date)?.timeIntervalSince1970 ?? 0
+        let key=metricID(provider.rawValue+":"+url.standardizedFileURL.path)
+        if let cursor=try store.cursor(id:key),cursor.identity==identity,cursor.offset==length,cursor.modificationTime==modificationTime {
+            var r=ScanReport();r.incompleteFiles=cursor.incomplete ? 1:0;return r
+        }
+        var cursor=LogCursor(identity:identity)
+        var scanner=LineScanner(provider:provider,lineLimit:16*1024*1024)
+        var events=[UsageEvent](),parser=ParserState(),parseIncomplete=false
+        let handle:(Data)->Void={ line in
+            let r=Self.parse(line,provider:provider,state:&parser)
+            if let event=r.event{events.append(event)};parseIncomplete = parseIncomplete || r.incomplete
+        }
+        do {
+            try ZstdStream.decompress(url,maximumOutput:4*1024*1024*1024) { raw in autoreleasepool { scanner.feed(raw,record:handle,lineEnded:{_ in}) } }
+            scanner.finish(record:handle)
+        } catch {
+            // Corrupt, truncated or oversized archive: keep what was decoded, report partial.
+            parseIncomplete=true
+        }
+        cursor.parser=parser
+        cursor.incomplete=parseIncomplete || scanner.incomplete
+        cursor.offset=length
+        cursor.modificationTime=modificationTime
+        var report=ScanReport();report.filesScanned=1
+        report.insertedEvents=try store.commit(events:events,cursor:cursor,id:key)
+        report.newestEvent=events.map(\.timestamp).max()
+        report.bytesRead=length
+        report.incompleteFiles=cursor.incomplete ? 1:0
         return report
     }
     /// Fingerprint only structural first-line metadata, never prompt/response/code content.

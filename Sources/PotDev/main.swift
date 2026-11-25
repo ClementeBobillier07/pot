@@ -38,6 +38,68 @@ if arguments.first == "benchmark-import" {
     print(String(format:"Import %.3f seconds · %.2f MiB/s",elapsed,Double(bytes)/1048576/max(0.001,elapsed)))
     exit(0)
 }
+if arguments.first == "reconcile" {
+    // Reads this Mac's real Codex/Claude logs into a throwaway database and prints only
+    // aggregate counts (no paths, prompts, identities or content). Never touches Pot's garden.
+    let directory = FileManager.default.temporaryDirectory.appendingPathComponent("pot-reconcile-" + UUID().uuidString)
+    try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let store = try PotStore(url: directory.appendingPathComponent("reconcile.sqlite"))
+    let ingestor = LogIngestor(store: store)
+    let catalog = try PriceCatalog.bundled()
+    for provider in Provider.allCases {
+        let roots = SourceDiscovery.defaultRoots(provider: provider)
+        let began = Date()
+        var passes = 0, incomplete = 0, files = 0
+        var bytes: UInt64 = 0
+        for root in roots {
+            while true {
+                let report = try ingestor.scan(root: root, provider: provider)
+                passes += 1; bytes += report.bytesRead
+                if !report.truncatedWork || passes > 500 { incomplete += report.incompleteFiles; files = max(files, report.filesScanned); break }
+            }
+        }
+        let elapsed = Date().timeIntervalSince(began)
+        let events = try store.events().filter { $0.provider == provider }
+        var byModel: [String: (n: Int, input: Int64, output: Int64, read: Int64, write: Int64)] = [:]
+        for e in events {
+            var row = byModel[e.model] ?? (0, 0, 0, 0, 0)
+            row.n += 1; row.input += e.input; row.output += e.output; row.read += e.cacheRead; row.write += e.cacheWrite
+            byModel[e.model] = row
+        }
+        let total = events.reduce(Int64(0)) { $0 + $1.totalTokens }
+        let estimate = catalog.estimate(events)
+        let profiles = Set(events.map(\.profileID)).map { $0.hasPrefix("local:") ? "unattributed" : "account-evidence" }
+        print("== \(provider.displayName): roots=\(roots.count) passes=\(passes) bytesRead=\(bytes) files(last pass)=\(files) incompleteFiles=\(incomplete) elapsed=\(String(format: "%.2f", elapsed))s")
+        print("events=\(events.count) totalTokens=\(total) profiles=\(profiles.sorted())")
+        for (model, row) in byModel.sorted(by: { $0.value.n > $1.value.n }) {
+            print("  \(model): n=\(row.n) input=\(row.input) output=\(row.output) cacheRead=\(row.read) cacheWrite=\(row.write)")
+        }
+        print("  estimatedUSD=\(estimate.amount.map { "\($0)" } ?? "unavailable") partial=\(estimate.partial) priced=\(estimate.pricedEvents)/\(estimate.totalEvents)")
+    }
+    // Replays real local usage into a throwaway plant born at the first observed event.
+    for provider in Provider.allCases {
+        let events = try store.events().filter { $0.provider == provider }
+        guard let first = events.map(\.timestamp).min() else { continue }
+        var plant = PlantState(seed: 42, provider: provider, createdAt: first)
+        var day = first
+        let end = Date()
+        while day < end {
+            day = min(end, day.addingTimeInterval(86400))
+            PlantEngine.advance(state: &plant, events: events, now: day)
+        }
+        let credited = plant.days.map { String(format: "%.2f", $0.credited) }.joined(separator: " ")
+        let references = plant.days.map { String(format: "%.0fk", $0.reference / 1000) }
+        print("plant[\(provider.rawValue)] ageDays=\(Int(Date().timeIntervalSince(first) / 86400)) organs=\(plant.organs.count) leaves=\(plant.organs.filter { $0.kind == .leaf }.count) flowers=\(plant.organs.filter { $0.kind == .flower }.count) branches=\(plant.organs.filter { $0.kind == .branch || $0.kind == .stem }.count) maturity=\(String(format: "%.2f", plant.historicalMaturity)) health=\(String(format: "%.2f", plant.health))")
+        print("  daily credited energy: \(credited)")
+        print("  reference first/last: \(references.first ?? "-") → \(references.last ?? "-")")
+    }
+    let replayStart = Date()
+    var replayed = 0
+    for provider in Provider.allCases { for root in SourceDiscovery.defaultRoots(provider: provider) { replayed += try ingestor.scan(root: root, provider: provider).insertedEvents } }
+    print("replay inserted=\(replayed) in \(String(format: "%.2f", Date().timeIntervalSince(replayStart)))s")
+    exit(0)
+}
 if arguments.first == "--detect" {
     // No public identity is printed, even when the installed client exposes one.
     // The default discovery path never starts optional Codex app-server.

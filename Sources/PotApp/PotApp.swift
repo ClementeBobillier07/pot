@@ -3,10 +3,21 @@ import AppKit
 import SwiftUI
 import PotCore
 
+/// Pure AppKit lifecycle. A SwiftUI `App` needs at least one scene, and its placeholder
+/// `Settings { EmptyView() }` opened an empty "Pot Settings" window at launch on macOS.
+/// Pot's windows (main window, floating plant, status item) are all owned by PotDelegate.
 @main
-struct PotApplication: App {
-    @NSApplicationDelegateAdaptor(PotDelegate.self) private var delegate
-    var body: some Scene { Settings { EmptyView() } }
+enum PotApplication {
+    @MainActor private static var delegate: PotDelegate?
+    static func main() {
+        MainActor.assumeIsolated {
+            let app = NSApplication.shared
+            let potDelegate = PotDelegate()
+            delegate = potDelegate
+            app.delegate = potDelegate
+            app.run()
+        }
+    }
 }
 
 @MainActor
@@ -18,6 +29,7 @@ final class PotDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.accessory)
+        NSApp.mainMenu = Self.makeMainMenu()
         model = AppModel()
         model.openMain = { [weak self] in self?.openMain() }
         panel = FloatingPlantController(model: model)
@@ -37,6 +49,8 @@ final class PotDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         window.contentView = NSHostingView(rootView: MainView(model: model))
         window.center()
         if !model.onboarded { openMain() } else { model.refreshDetection() }
+        // Development/QA convenience: `swift run Pot --show-window` opens the garden directly.
+        if CommandLine.arguments.contains("--show-window") { openMain() }
     }
 
     func openMain() {
@@ -57,6 +71,27 @@ final class PotDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         statusItem.menu = menu
         statusItem.button?.performClick(nil)
         statusItem.menu = nil
+    }
+    /// Invisible for an accessory app, but required for standard key equivalents
+    /// (copy/paste in the alias field, ⌘W, ⌘Q) once there is no SwiftUI scene.
+    private static func makeMainMenu() -> NSMenu {
+        let main = NSMenu()
+        let appItem = NSMenuItem(); let appMenu = NSMenu()
+        appMenu.addItem(withTitle: "Quit Pot", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
+        appItem.submenu = appMenu; main.addItem(appItem)
+        let editItem = NSMenuItem(); let edit = NSMenu(title: "Edit")
+        edit.addItem(withTitle: "Undo", action: Selector(("undo:")), keyEquivalent: "z")
+        edit.addItem(withTitle: "Redo", action: Selector(("redo:")), keyEquivalent: "Z")
+        edit.addItem(.separator())
+        edit.addItem(withTitle: "Cut", action: #selector(NSText.cut(_:)), keyEquivalent: "x")
+        edit.addItem(withTitle: "Copy", action: #selector(NSText.copy(_:)), keyEquivalent: "c")
+        edit.addItem(withTitle: "Paste", action: #selector(NSText.paste(_:)), keyEquivalent: "v")
+        edit.addItem(withTitle: "Select All", action: #selector(NSText.selectAll(_:)), keyEquivalent: "a")
+        editItem.submenu = edit; main.addItem(editItem)
+        let windowItem = NSMenuItem(); let window = NSMenu(title: "Window")
+        window.addItem(withTitle: "Close", action: #selector(NSWindow.performClose(_:)), keyEquivalent: "w")
+        windowItem.submenu = window; main.addItem(windowItem)
+        return main
     }
     @objc private func showMain() { openMain() }
     @objc private func showSettings() { model.showSettings = true; openMain() }

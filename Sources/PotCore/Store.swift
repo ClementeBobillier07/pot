@@ -90,7 +90,7 @@ public final class PotStore {
                 try put("INSERT OR REPLACE INTO usage VALUES(?,?,?,?,?)",[event.id,event.profileID,String(event.timestamp.timeIntervalSince1970),String(event.totalTokens),try encode(event)])
                 changed += 1
                 if try query("SELECT id FROM profiles WHERE id=?",[event.profileID]).isEmpty {
-                    try saveProfile(LocalProfile(id:event.profileID,provider:event.provider,alias:event.accountID == nil ? "Local activity · unattributed" : "Identified account",createdAt:Date()))
+                    try saveProfile(LocalProfile(id:event.profileID,provider:event.provider,alias:event.accountID == nil ? "Local activity · unattributed" : "\(event.provider.displayName) account",createdAt:Date()))
                 }
             }
             try put("INSERT OR REPLACE INTO cursors VALUES(?,?)",[id,try encode(cursor)])

@@ -5,7 +5,8 @@ struct TokenVector: Codable, Equatable {
     static func read(_ object:[String:Any]) -> TokenVector? {
         guard let input=count(object["input_tokens"]),let output=count(object["output_tokens"]) else { return nil }
         let cache=count(object["cached_input_tokens"]) ?? 0
-        let write=count(object["cache_creation_tokens"]) ?? 0
+        // Current Codex rollouts (verified 2026-11-25) use cache_write_input_tokens; older builds cache_creation_tokens.
+        let write=count(object["cache_write_input_tokens"]) ?? count(object["cache_creation_tokens"]) ?? 0
         guard cache+write <= input else { return nil }
         return TokenVector(input:input,output:output,cache:cache,write:write)
     }
@@ -31,6 +32,8 @@ struct ParserState:Codable {
     var legacyFork=false
     var usesUsageRecords=false
     var nonstandardPricing=false
+    /// Pseudonymous provider account from explicit per-session evidence (Codex `session_meta.creator_account_id`).
+    var account:String?
 }
 
 struct ParseResult {
@@ -47,6 +50,8 @@ enum CodexAdapter {
         if p["type"] as? String == "thread_settings_applied",let settings=p["thread_settings"] as? [String:Any],let tier=settings["service_tier"] as? String {state.nonstandardPricing = !["default","standard","auto"].contains(tier)}
         if o["type"] as? String == "session_meta" {
             if let id=p["id"] as? String {state.session=id}
+            // Explicit per-session ownership evidence; stored only as a local pseudonym.
+            state.account=(p["creator_account_id"] as? String).flatMap{$0.isEmpty ? nil:"codex:account:"+metricID($0)}
             state.forkNeedsBaseline=(p["forked_from_id"] as? String) != nil
             state.legacyFork=state.forkNeedsBaseline
             return ParseResult()
@@ -64,7 +69,7 @@ enum CodexAdapter {
             state.cumulative=cumulative
             guard !alreadyCounted else{return ParseResult()}
             if let model=p["model"] as? String {state.model=model}
-            let account=(p["account_id"] as? String).map{"codex:account:"+metricID($0)}
+            let account=(p["account_id"] as? String).map{"codex:account:"+metricID($0)} ?? state.account
             _=response // required stable response metadata; canonical cumulative key also bridges legacy-only copies
             let key="\(session)|c:\(cumulative.input):\(cumulative.output):\(cumulative.cache):\(cumulative.write)"
             return ParseResult(event:UsageEvent(id:"codex:usage:"+metricID(key),provider:.codex,accountID:account,timestamp:date,model:state.model,input:usage.input-usage.cache-usage.write,output:usage.output,cacheRead:usage.cache,cacheWrite:usage.write,pricingIncomplete:state.model=="unknown" || state.nonstandardPricing),incomplete:state.model=="unknown")
@@ -96,7 +101,7 @@ enum CodexAdapter {
         let session=state.session ?? "unidentified-session"
         let identity=stableRequest.map{"\(session)|request:\($0)"} ?? "\(session)|\(signature)"
         let id="codex:usage:"+metricID(identity)
-        let account=(p["account_id"] as? String ?? o["account_id"] as? String).map{"codex:account:"+metricID($0)}
+        let account=(p["account_id"] as? String ?? o["account_id"] as? String).map{"codex:account:"+metricID($0)} ?? state.account
         return ParseResult(event:UsageEvent(id:id,provider:.codex,accountID:account,timestamp:date,model:state.model,input:tokens.input-tokens.cache-tokens.write,output:tokens.output,cacheRead:tokens.cache,cacheWrite:tokens.write,pricingIncomplete:state.model=="unknown" || state.nonstandardPricing),incomplete:state.model=="unknown" || state.session==nil)
     }
 }
@@ -111,13 +116,18 @@ enum ClaudeAdapter {
         let five=count(creation?["ephemeral_5m_input_tokens"])
         let hour=count(creation?["ephemeral_1h_input_tokens"])
         let model=m["model"] as? String ?? "unknown"
+        // Claude Code writes zero-usage "<synthetic>" placeholder messages; they are not API calls.
+        if model=="<synthetic>" || (input==0 && output==0 && (count(u["cache_read_input_tokens"]) ?? 0)==0 && (count(u["cache_creation_input_tokens"]) ?? 0)==0) {return ParseResult()}
         // A stable assistant message ID also deduplicates partial lines where requestId arrives later.
         let id="claude:"+metricID(messageID)
         let account=(o["account_id"] as? String).map{"claude:account:"+metricID($0)}
         let ambiguous=write>0 && (five == nil || hour == nil || five!+hour! != write)
         let tier=u["service_tier"] as? String ?? m["service_tier"] as? String ?? o["service_tier"] as? String
         let nonstandard=tier.map{!["standard","default","auto"].contains($0)} ?? false
-        let fast=u["inference_geo"] as? String != nil || u["speed"] as? String == "fast" || o["fastMode"] as? Bool == true
+        // Every real record carries inference_geo ("global" is standard pricing). US-only inference costs 1.1x
+        // and fast mode has its own rates; neither is modelled, so those estimates stay partial.
+        let geo=u["inference_geo"] as? String
+        let fast=(geo != nil && !["global","not_available",""].contains(geo!)) || u["speed"] as? String == "fast" || o["fastMode"] as? Bool == true
         return ParseResult(event:UsageEvent(id:id,provider:.claude,accountID:account,timestamp:date,model:model,input:input,output:output,cacheRead:cache,cacheWrite:write,cacheWrite5m:five,cacheWrite1h:hour,pricingIncomplete:ambiguous || model=="unknown" || nonstandard || fast),incomplete:model=="unknown")
     }
 }

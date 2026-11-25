@@ -79,7 +79,7 @@ struct MainView: View {
                         Spacer()
                         Picker("Chart unit", selection: $dollars) {
                             Text("Tokens").tag(false); Text("USD").tag(true)
-                        }.pickerStyle(.segmented).frame(width: 132)
+                        }.pickerStyle(.segmented).labelsHidden().frame(width: 132)
                     }
                     Chart(account.days, id: \.date) { day in
                         BarMark(x: .value("Day", day.date, unit: .day), y: .value(dollars ? "Estimated USD" : "Tokens", chartValue(day)), width: .ratio(0.55))

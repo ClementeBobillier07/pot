@@ -142,7 +142,11 @@ public enum PlantEngine {
                 let confidence = min(1, Double(previous.count) / 7)
                 let target = 100_000 * (1 - confidence) + median * confidence
                 let previousReference = ledger.values.filter { $0.day < eventDay }.sorted { $0.day < $1.day }.last?.reference ?? state.reference
-                let reference = min(previousReference * 1.15, max(previousReference * 0.85, max(10_000, target)))
+                // While fewer than seven active days are known (calibration), follow the observed rhythm
+                // directly: real heavy users run ~10^8 tokens/day, which a ±15 %/day limit from the
+                // 100k prior would need weeks to reach, crediting maximum energy every day meanwhile.
+                // After calibration the limit keeps one large or quiet day from swinging the target.
+                let reference = confidence < 1 ? max(10_000, target) : min(previousReference * 1.15, max(previousReference * 0.85, max(10_000, target)))
                 ledger[eventDay] = PlantDay(day: eventDay, tokens: total, reference: reference, credited: 0)
             }
         }

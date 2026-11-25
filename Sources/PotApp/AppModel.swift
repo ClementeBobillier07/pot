@@ -14,8 +14,11 @@ struct AccountSnapshot {
     var priceReference: String
 }
 
-private final class GardenWorker {
+/// Confined to AppModel's serial ingestion queue; never touched concurrently.
+private final class GardenWorker: @unchecked Sendable {
     private var store: PotStore?
+    /// Set when the last scan stopped with history left to import.
+    var pendingImport = false
     func database() throws -> PotStore {
         if let store { return store }
         let folder = try FileManager.default.url(for: .applicationSupportDirectory, in: .userDomainMask, appropriateFor: nil, create: true).appendingPathComponent("Pot", isDirectory: true)
@@ -27,6 +30,7 @@ private final class GardenWorker {
 
     func scan(roots: [Provider: [URL]], detections: [AgentDetection], now: Date) throws -> [AccountSnapshot] {
         let db = try database()
+        pendingImport = false
         let catalog = try PriceCatalog.bundled()
         let ingestor = LogIngestor(store: db)
         var availability: [Provider: Bool] = [:]
@@ -35,28 +39,27 @@ private final class GardenWorker {
             let sources = roots[provider] ?? []
             var healthy = !sources.isEmpty
             var found = false
+            var importing = false
             for root in sources {
                 do {
-                    let report = try ingestor.scan(root: root, provider: provider)
+                    // Keep resuming bounded passes for a few seconds so a first import of a large
+                    // history finishes in one or two scans instead of one 64 MiB pass per minute.
+                    let deadline = Date().addingTimeInterval(8)
+                    var report = try ingestor.scan(root: root, provider: provider)
+                    while report.truncatedWork && Date() < deadline { report = try ingestor.scan(root: root, provider: provider) }
                     found = found || report.filesScanned > 0
-                    if report.incompleteFiles > 0 || report.truncatedWork { healthy = false }
+                    if report.truncatedWork { importing = true; pendingImport = true }
+                    else if report.incompleteFiles > 0 { healthy = false }
                 } catch { healthy = false }
             }
-            availability[provider] = healthy && found
-            coverage[provider] = !healthy ? "Source unavailable or partial · health protected" : !found ? "No compatible usage yet · health protected" : "Local records · account attribution may be incomplete"
+            availability[provider] = healthy && found && !importing
+            coverage[provider] = importing ? "Importing local history… · health protected" : !healthy ? "Source unavailable or partial · health protected" : !found ? "No compatible usage yet · health protected" : "Local records · account attribution may be incomplete"
             let detected = detections.first { $0.provider == provider }
-            let account = detected?.account
-            if let id = account?.id ?? account?.email.map({ "\(provider.rawValue):public:" + metricID($0) }) {
-                if var profile = try db.profiles().first(where: { $0.id == id }) {
-                    if let email = account?.email, profile.email != email {
-                        profile.email = email
-                        try db.saveProfile(profile)
-                    }
-                } else {
-                    try db.saveProfile(LocalProfile(id: id, provider: provider, alias: account?.email ?? "Connected account", email: account?.email, createdAt: now))
-                }
-            }
-            if (detected?.executable != nil || !sources.isEmpty), account == nil, !(try db.profiles()).contains(where: { $0.id == provider.unattributedProfileID }) {
+            // The signed-in account is shown in onboarding/settings only. It never gets its own plant:
+            // Claude Code logs carry no per-event account, so such a plant could never grow, and the
+            // current login does not prove who produced past records. Plants follow log evidence.
+            // Placeholder only when this provider has no plant yet; logs with explicit account evidence create their own.
+            if (detected?.executable != nil || !sources.isEmpty), !(try db.profiles()).contains(where: { $0.provider == provider }) {
                 try db.saveProfile(LocalProfile(id: provider.unattributedProfileID, provider: provider, alias: "Local activity · unattributed", createdAt: now))
             }
         }
@@ -177,11 +180,25 @@ final class AppModel: ObservableObject {
     }
     private func observeRoots() {
         observer = DirectoryObserver(roots: roots.filter { enabledProviders.contains($0.key) }.values.flatMap { $0 }) { [weak self] in
-            DispatchQueue.main.async { self?.scan() }
+            DispatchQueue.main.async { self?.scheduleFileScan() }
         }
         timer?.invalidate()
         timer = Timer.scheduledTimer(withTimeInterval: 60, repeats: true) { [weak self] _ in
             Task { @MainActor in self?.scan() }
+        }
+    }
+    /// Agents append to their logs continuously while working. Coalesce file events so Pot
+    /// rescans at most every few seconds instead of after every write.
+    private var fileScanScheduled = false
+    private var lastScanStarted = Date.distantPast
+    private func scheduleFileScan() {
+        guard !fileScanScheduled else { return }
+        let wait = max(0, 4 - Date().timeIntervalSince(lastScanStarted))
+        fileScanScheduled = true
+        DispatchQueue.main.asyncAfter(deadline: .now() + wait) { [weak self] in
+            guard let self else { return }
+            self.fileScanScheduled = false
+            self.scan()
         }
     }
     func scan() {
@@ -196,11 +213,13 @@ final class AppModel: ObservableObject {
         }
         if rootsChanged { observeRoots() }
         busy = true
+        lastScanStarted = Date()
         let sources = roots.filter { enabledProviders.contains($0.key) }
         let agents = detections.filter { enabledProviders.contains($0.provider) }
         let worker = worker
         queue.async { [weak self] in
             let result = Result { try worker.scan(roots: sources, detections: agents, now: Date()) }
+            let moreHistory = worker.pendingImport
             DispatchQueue.main.async {
                 guard let self else { return }
                 self.busy = false
@@ -212,7 +231,7 @@ final class AppModel: ObservableObject {
                     self.message = "Pot could not safely update its local garden. Your existing plants are preserved. Check folder access and try again."
                 }
                 self.updateFloating()
-                if self.pendingScan { self.pendingScan = false; self.scan() }
+                if self.pendingScan || moreHistory { self.pendingScan = false; self.scan() }
             }
         }
     }
