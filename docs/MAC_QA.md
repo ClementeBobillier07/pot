@@ -1,0 +1,56 @@
+# Native macOS acceptance checklist
+
+Status: **pending — Linux cannot run the native app.** Do not mark an item passed solely because Swift core tests succeed on Linux or a cross-compiled Mach-O file exists.
+
+For each run record hardware, CPU architecture, macOS version, Xcode/Swift version, Pot commit, Codex/Claude versions and whether an installed `.app` or `swift run` was used. Do not include personal log contents, email addresses or secrets in the report.
+
+## Install and startup
+
+- Build using `scripts/build-macos.sh --dmg`; confirm tests, resource bundles, icon, Info.plist and binary architecture checks pass.
+- Open from `/Applications`, complete onboarding and quit/relaunch. Verify no terminal, login or runtime installation is required for normal use.
+- Test launch at login using the installed application and the system's real Login Items state; test registration error reporting and disabling.
+- Close the main window and confirm the menu-bar item remains usable. Quit must actually terminate Pot.
+- For release candidates, install an actual quarantined downloaded notarized DMG on a clean Mac without bypassing Gatekeeper.
+
+## Detection, accounts and ingestion
+
+- Run with only Codex, only Claude, both clients and neither client installed. Verify actionable retry and custom-folder selection, including nonstandard executable/log paths.
+- Confirm existing login is reused through safe public status interfaces, never reading credential files or causing a login/refresh prompt.
+- Compare displayed counts with a manually counted allowlisted usage sample or a trusted offline reader. Never upload entire transcripts for debugging.
+- Test active append, incomplete final line, malformed record, stream update, cumulative counter, two concurrent sessions, same-size replacement, truncation, archive move and duplicated folders. Restart during ingestion; counts must remain unchanged on replay.
+- Change an agent's active account. Verify any identified account gets its own plant and historical events without explicit account evidence stay unattributed. A current email must not relabel shared historical logs.
+- Revoke source permissions and replace a source with a symlink outside its authorized folder. The app must report incomplete/unavailable data and freeze deterioration rather than silently count zero.
+- Test daylight saving and time-zone changes around daily aggregation, including days with no events; confirm totals include each event once.
+
+## Main interface and settings
+
+- Verify ordered provider, alias/email, centered plant, today's tokens, “Estimated API value”, seven-day chart and account navigation. Chart selection, totals and token/USD switching must work.
+- Navigate several accounts with keyboard arrows and horizontal trackpad gestures; selected account and plant must stay synchronized across surfaces and relaunch.
+- Unknown models/prices show unavailable or partial values; estimates never claim to be actual charges. Verify the price reference date/version appears where appropriate.
+- Test light/dark/system appearance, large text, VoiceOver, keyboard focus, contrast and macOS Reduce Motion. No movement should continue for invisible surfaces.
+- Confirm destructive deletion requires confirmation, affects only Pot data, and recreates an empty onboarding state without deleting agent logs.
+
+## Floating NSPanel
+
+- Exactly one plant, transparent with no card, shadow, title or visible background in light/dark mode.
+- Hover shows only the X and (when several plants exist) left/right arrows; leaving fades controls. Controls never open the main app accidentally.
+- A plant click opens the main window with the corresponding account. A drag changes position without opening the window; position survives restart.
+- The panel appearing, hovering or dragging must not steal focus from the active application. Test typing into another application while activity begins.
+- Empty transparent regions must not unnecessarily obstruct interaction with underlying windows. Test control hit targets and cursor tracking along the silhouette.
+- X hides the panel while Pot stays alive. Recover it using the menu item. In “While I work”, closing it suppresses the current activity session and new activity after idle may show it again.
+- Test all three display modes; idle timeout/hysteresis; manual hide; agent bursts; activity on a different selected provider. Historical import must not trigger a welcome dance or switch the selected plant.
+- Test scaling, all screen corners, Dock at bottom/left/right, menu-bar autohide, Retina/non-Retina monitors, resolution changes and unplugging the saved monitor. Ensure panel remains reachable.
+- Test Spaces, full-screen applications and Stage Manager separately. Record any intentional visibility limitation; do not assume collectionBehavior alone proves support.
+
+## Biology, privacy and reliability
+
+- Development-only simulations can show days 1/3/30/365 and flower stages without altering production data. Production has no fake-data switch.
+- Restart after activity and after several offline days. Plant seed, historical maturity, individual organs and health persist; clock rollback/repeated imports award no new energy.
+- Verify gentle weekend grace, recovery after vacation, data-gap freeze and no permanent death. Long-run organ count stays bounded while renewal remains visible.
+- Disable network access and complete normal Pot flows; inspect app traffic using system tools. No app usage, identities or transcripts should leave the machine.
+- Inspect Pot's SQLite/diagnostic files for allowlisted metrics only. Verify private file permissions and that no credentials, prompts, outputs or code are retained.
+- Force quit during a scan and reopen. Database/cursor transaction integrity must survive without duplicate usage or plant reset.
+
+## Record resource measurements
+
+Measure the **installed release `.app`** on a named Mac, not the Linux simulator: idle and active CPU, resident memory, energy impact, first-open panel latency, 100 MB log import wall time and peak memory. Sample multiple minutes in Activity Monitor or Instruments, document sample duration and test data shape. Targets from the master document (<1% average idle CPU, <150 MB resident memory, <500 ms panel latency, <30 s for 100 MB ingestion) remain hypotheses until measured.

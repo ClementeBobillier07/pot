@@ -1,0 +1,40 @@
+name: Manual macOS validation
+
+# No automatic workflow runs and no release/publish capability.
+on:
+  workflow_dispatch:
+    inputs:
+      architecture:
+        description: Build architecture (universal additionally needs runtime QA on both Macs)
+        required: true
+        default: arm64
+        type: choice
+        options:
+          - arm64
+          - x86_64
+          - universal
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: macos-15
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - name: Show Xcode
+        run: xcodebuild -version
+      - name: Test and build local application and installer
+        env:
+          POT_ARCHITECTURE: ${{ inputs.architecture }}
+        run: scripts/build-macos.sh --arch "$POT_ARCHITECTURE" --dmg
+      - name: Keep build artifacts for manual download (not a GitHub Release)
+        uses: actions/upload-artifact@v4
+        with:
+          name: Pot-local-${{ inputs.architecture }}
+          path: |
+            artifacts/*.dmg
+            artifacts/*.sha256
+          if-no-files-found: error
+          retention-days: 7
