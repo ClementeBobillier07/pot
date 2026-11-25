@@ -10,6 +10,10 @@ import PotCore
 enum PotApplication {
     @MainActor private static var delegate: PotDelegate?
     static func main() {
+        // QA: `Pot --render-plants <dir>` writes synthetic plant PNGs and exits (no windows).
+        if let i = CommandLine.arguments.firstIndex(of: "--render-plants"), i + 1 < CommandLine.arguments.count {
+            MainActor.assumeIsolated { PlantSnapshots.renderAndExit(to: CommandLine.arguments[i + 1]) }
+        }
         MainActor.assumeIsolated {
             let app = NSApplication.shared
             let potDelegate = PotDelegate()
