@@ -18,14 +18,16 @@ public struct ScanReport:Sendable {
     public var newestEvent:Date?
     public var truncatedWork=false
     public var bytesRead:UInt64=0
+    /// Files that needed reading this pass (unchanged files are only visited).
+    public var filesRead:Int=0
     public init() {}
 }
 
 public final class LogIngestor {
     private let store:PotStore
     public init(store:PotStore){self.store=store}
-    /// Bounded 32 MiB per plain file/pass, 4 MiB per relevant line (16 MiB in archives), 10,000 files/pass; unfinished work is resumed.
-    /// Archived `.jsonl.zst` files are decoded whole (bounded at 4 GiB output) and count their compressed size against the pass budget.
+    /// Bounded 32 MiB per plain file/pass, 16 MiB per relevant record, 10,000 files needing work per pass; unfinished work is resumed.
+    /// Archived `.jsonl.zst` files are decoded whole (bounded at 4 GiB output) and count their decoded size against the pass budget.
     public func scan(root:URL,provider:Provider) throws -> ScanReport {
         let fm=FileManager.default
         let canonical=root.standardizedFileURL.resolvingSymlinksInPath()
@@ -36,7 +38,10 @@ public final class LogIngestor {
         var enumerationFailed=false
         guard let files=fm.enumerator(at:canonical,includingPropertiesForKeys:Array(keys),options:[.skipsHiddenFiles],errorHandler:{_,_ in enumerationFailed=true;return true}) else{throw CocoaError(.fileReadNoPermission)}
         for case let url as URL in files {
-            if report.filesScanned>=10_000 || report.bytesRead>=64*1024*1024 {report.truncatedWork=true;report.incompleteFiles += 1;break}
+            // Budgets count only files that needed reading, so unchanged history never blocks progress.
+            // A hard visit cap still bounds pathological trees; hitting it is reported as partial.
+            if report.filesRead>=10_000 || report.bytesRead>=64*1024*1024 {report.truncatedWork=true;report.incompleteFiles += 1;break}
+            if report.filesScanned>=1_000_000 {report.incompleteFiles += 1;break}
             let values=try url.resourceValues(forKeys:keys)
             if values.isSymbolicLink==true {files.skipDescendants();continue}
             guard values.isRegularFile==true else{continue}
@@ -48,6 +53,7 @@ public final class LogIngestor {
                 let r=try compressed ? scanCompressedFile(resolved,provider:provider) : scanFile(resolved,provider:provider)
                 report.filesScanned += 1;report.insertedEvents += r.insertedEvents;report.incompleteFiles += r.incompleteFiles
                 report.bytesRead += r.bytesRead
+                if r.bytesRead>0 {report.filesRead += 1}
                 report.truncatedWork = report.truncatedWork || r.truncatedWork
                 if let d=r.newestEvent {report.newestEvent=max(report.newestEvent ?? d,d)}
             } catch {report.incompleteFiles += 1}
@@ -131,12 +137,13 @@ public final class LogIngestor {
         var cursor=LogCursor(identity:identity)
         var scanner=LineScanner(provider:provider,lineLimit:16*1024*1024)
         var events=[UsageEvent](),parser=ParserState(),parseIncomplete=false
+        var decoded:UInt64=0
         let handle:(Data)->Void={ line in
             let r=Self.parse(line,provider:provider,state:&parser)
             if let event=r.event{events.append(event)};parseIncomplete = parseIncomplete || r.incomplete
         }
         do {
-            try ZstdStream.decompress(url,maximumOutput:4*1024*1024*1024) { raw in autoreleasepool { scanner.feed(raw,record:handle,lineEnded:{_ in}) } }
+            try ZstdStream.decompress(url,maximumOutput:4*1024*1024*1024) { raw in decoded += UInt64(raw.count);autoreleasepool { scanner.feed(raw,record:handle,lineEnded:{_ in}) } }
             scanner.finish(record:handle)
         } catch {
             // Corrupt, truncated or oversized archive: keep what was decoded, report partial.
@@ -149,7 +156,8 @@ public final class LogIngestor {
         var report=ScanReport();report.filesScanned=1
         report.insertedEvents=try store.commit(events:events,cursor:cursor,id:key)
         report.newestEvent=events.map(\.timestamp).max()
-        report.bytesRead=length
+        // Decoded size is the real work done; it counts against the per-pass budget.
+        report.bytesRead=max(length,decoded)
         report.incompleteFiles=cursor.incomplete ? 1:0
         return report
     }

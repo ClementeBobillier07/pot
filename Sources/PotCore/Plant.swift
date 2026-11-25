@@ -61,6 +61,8 @@ public struct PlantState: Codable, Equatable, Sendable {
     public var lastReliableObservation: Date
     /// Set while the person has paused the garden (vacation). Biology and deterioration are frozen.
     public var pausedAt: Date?
+    /// End of the most recent pause. Usage recorded before it is never credited as energy.
+    public var resumedAt: Date?
 
     public init(seed: UInt64, provider: Provider, createdAt: Date) {
         self.seed = seed
@@ -113,8 +115,6 @@ public enum PlantEngine {
 
     public static func day(_ date: Date) -> Int { Int(floor(date.timeIntervalSince1970 / 86400)) }
 
-    /// Supply a canonical usage snapshot for this profile, not raw line-by-line deltas.
-    /// Energy is independent of prices and never credits history predating the plant.
     /// "Pause the garden": freezes growth, ageing and deterioration until resumed. Usage that
     /// happens while paused still appears in statistics but is never banked as energy, and the
     /// paused time does not count as dormancy afterwards.
@@ -127,6 +127,7 @@ public enum PlantEngine {
             let resumeAt = max(now, state.lastUpdated)
             let duration = max(0, resumeAt.timeIntervalSince(since))
             state.pausedAt = nil
+            state.resumedAt = resumeAt
             state.lastUpdated = resumeAt
             // Shift biological clocks so the pause is invisible to dormancy and scheduling.
             state.lastActivity = state.lastActivity.map { $0.addingTimeInterval(duration) }
@@ -140,6 +141,8 @@ public enum PlantEngine {
         }
     }
 
+    /// Supply a canonical usage snapshot for this profile, not raw line-by-line deltas.
+    /// Energy is independent of prices and never credits history predating the plant.
     public static func advance(state: inout PlantState, events: [UsageEvent], now: Date, dataAvailable: Bool = true) {
         guard now > state.lastUpdated else { return }
         if state.pausedAt != nil { state.lastUpdated = now; return }
@@ -147,7 +150,7 @@ public enum PlantEngine {
         let highDay = day(now)
         var seen = Set<String>()
         let eligible = events.filter {
-            $0.provider == state.provider && $0.timestamp >= state.createdAt && $0.timestamp <= now &&
+            $0.provider == state.provider && $0.timestamp >= max(state.createdAt, state.resumedAt ?? state.createdAt) && $0.timestamp <= now &&
             day($0.timestamp) > state.creditedBeforeDay && seen.insert($0.id).inserted
         }
         let grouped = Dictionary(grouping: eligible, by: { day($0.timestamp) })

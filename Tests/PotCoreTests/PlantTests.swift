@@ -178,4 +178,22 @@ final class PlantTests: XCTestCase {
         let decoded = try JSONDecoder().decode(PlantState.self, from: JSONEncoder().encode(plant))
         XCTAssertEqual(decoded.pausedAt, plant.pausedAt)
     }
+    func testUsageDuringSameDayPauseIsNotCredited() {
+        var paused = PlantState(seed: 11, provider: .codex, createdAt: start)
+        var control = paused
+        let morning = start.addingTimeInterval(9 * 3600), evening = start.addingTimeInterval(17 * 3600)
+        let events = [event(12 * 3600, 400_000)] // heavy use while paused, same UTC day
+        PlantEngine.advance(state: &paused, events: [], now: morning)
+        PlantEngine.setPaused(true, state: &paused, now: morning)
+        PlantEngine.advance(state: &paused, events: events, now: evening)
+        PlantEngine.setPaused(false, state: &paused, now: evening)
+        PlantEngine.advance(state: &paused, events: events, now: evening.addingTimeInterval(3 * 3600))
+        PlantEngine.advance(state: &control, events: [], now: morning)
+        PlantEngine.setPaused(true, state: &control, now: morning)
+        PlantEngine.advance(state: &control, events: [], now: evening)
+        PlantEngine.setPaused(false, state: &control, now: evening)
+        PlantEngine.advance(state: &control, events: [], now: evening.addingTimeInterval(3 * 3600))
+        XCTAssertEqual(paused.reserve, control.reserve, accuracy: 0.000001)
+        XCTAssertEqual(paused.historicalMaturity, control.historicalMaturity, accuracy: 0.000001)
+    }
 }

@@ -59,13 +59,18 @@ public final class PotStore {
     }
     public func profiles() throws -> [LocalProfile] { try query("SELECT payload FROM profiles ORDER BY id").map{try decode(LocalProfile.self,$0[0])} }
     public func saveProfile(_ profile:LocalProfile) throws { try put("INSERT OR REPLACE INTO profiles VALUES(?,?)",[profile.id,try encode(profile)]) }
-    public func events(profileID:String?=nil,since:Date?=nil) throws -> [UsageEvent] {
+    public func events(profileID:String?=nil,since:Date?=nil,before:Date?=nil) throws -> [UsageEvent] {
         var clauses=[String](),bindings=[String]()
         if let profileID {clauses.append("profile=?");bindings.append(profileID)}
         if let since {clauses.append("timestamp>=?");bindings.append(String(since.timeIntervalSince1970))}
+        if let before {clauses.append("timestamp<?");bindings.append(String(before.timeIntervalSince1970))}
         let filter=clauses.isEmpty ? "":" WHERE "+clauses.joined(separator:" AND ")
         let rows=try query("SELECT payload FROM usage"+filter+" ORDER BY timestamp,id",bindings)
         return try rows.map{try decode(UsageEvent.self,$0[0])}
+    }
+    /// Number of events older than `before`, without decoding payloads (cache key for old history).
+    public func eventCount(profileID:String,before:Date) throws -> Int {
+        Int(try query("SELECT COUNT(*) FROM usage WHERE profile=? AND timestamp<?",[profileID,String(before.timeIntervalSince1970)]).first?.first ?? "0") ?? 0
     }
     /// First/last event time and count for coverage display, without decoding payloads.
     public func coverage(profileID:String) throws -> (first:Date?,last:Date?,count:Int) {

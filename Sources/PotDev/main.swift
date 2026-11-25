@@ -53,10 +53,11 @@ if arguments.first == "reconcile" {
         var passes = 0, incomplete = 0, files = 0
         var bytes: UInt64 = 0
         for root in roots {
+            var rootPasses = 0
             while true {
                 let report = try ingestor.scan(root: root, provider: provider)
-                passes += 1; bytes += report.bytesRead
-                if !report.truncatedWork || passes > 500 { incomplete += report.incompleteFiles; files = max(files, report.filesScanned); break }
+                passes += 1; rootPasses += 1; bytes += report.bytesRead
+                if !report.truncatedWork || report.bytesRead == 0 || rootPasses >= 500 { incomplete += report.incompleteFiles; files += report.filesScanned; break }
             }
         }
         let elapsed = Date().timeIntervalSince(began)

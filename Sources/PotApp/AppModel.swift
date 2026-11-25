@@ -25,6 +25,8 @@ private final class GardenWorker: @unchecked Sendable {
     private var store: PotStore?
     /// Set when the last scan stopped with history left to import.
     var pendingImport = false
+    /// Summary of events older than the 45-day window, keyed by window start day and their count.
+    private var olderHistory: [String: (key: String, summary: PeriodSummary)] = [:]
     func database() throws -> PotStore {
         if let store { return store }
         let folder = try FileManager.default.url(for: .applicationSupportDirectory, in: .userDomainMask, appropriateFor: nil, create: true).appendingPathComponent("Pot", isDirectory: true)
@@ -52,10 +54,11 @@ private final class GardenWorker: @unchecked Sendable {
                     // history finishes in one or two scans instead of one 64 MiB pass per minute.
                     let deadline = Date().addingTimeInterval(8)
                     var report = try ingestor.scan(root: root, provider: provider)
-                    while report.truncatedWork && Date() < deadline { report = try ingestor.scan(root: root, provider: provider) }
+                    while report.truncatedWork && report.bytesRead > 0 && Date() < deadline { report = try ingestor.scan(root: root, provider: provider) }
                     found = found || report.filesScanned > 0
-                    if report.truncatedWork { importing = true; pendingImport = true }
-                    else if report.incompleteFiles > 0 { healthy = false }
+                    // Reschedule immediately only while passes make progress; a stalled pass is partial coverage.
+                    if report.truncatedWork && report.bytesRead > 0 { importing = true; pendingImport = true }
+                    else if report.incompleteFiles > 0 || report.truncatedWork { healthy = false }
                 } catch { healthy = false }
             }
             availability[provider] = healthy && found && !importing
@@ -88,6 +91,14 @@ private final class GardenWorker: @unchecked Sendable {
             for period in [UsagePeriod.today, .week, .month] {
                 periods[period] = UsageStatistics.summary(events: events, period: period, now: now, timeZone: .current, catalog: catalog)
             }
+            // "All" = cached older history + the in-memory window, refreshed on every scan.
+            let windowStart = now.addingTimeInterval(-45 * 86400)
+            let olderKey = "\(Int(windowStart.timeIntervalSince1970 / 86400))|\(try db.eventCount(profileID: profile.id, before: windowStart))"
+            if olderHistory[profile.id]?.key != olderKey {
+                olderHistory[profile.id] = (olderKey, UsageStatistics.summary(try db.events(profileID: profile.id, before: windowStart), catalog: catalog))
+            }
+            let window = UsageStatistics.summary(events.filter { $0.timestamp >= windowStart && $0.timestamp <= now }, catalog: catalog)
+            periods[.all] = olderHistory[profile.id]!.summary.combined(with: window)
             return AccountSnapshot(profile: profile, plant: updated,
                 days: UsageStatistics.lastSevenDays(events: events, now: now, timeZone: .current, catalog: catalog),
                 lastActivity: events.filter { $0.timestamp <= now }.map(\.timestamp).max(),
@@ -96,8 +107,9 @@ private final class GardenWorker: @unchecked Sendable {
         }
     }
 
-    func allTime(profileID: String, now: Date) throws -> PeriodSummary {
-        UsageStatistics.summary(events: try database().events(profileID: profileID), period: .all, now: now, catalog: try PriceCatalog.bundled())
+    func eraseAll() throws {
+        olderHistory = [:]
+        try database().eraseAll()
     }
 
     func exportData(now: Date) throws -> Data {
@@ -146,7 +158,6 @@ final class AppModel: ObservableObject {
             NotificationCenter.default.post(name: .potResetPosition, object: nil)
         }
     }
-    @Published var allTime: [String: PeriodSummary] = [:]
     @Published private(set) var floatingVisible = false
     @Published private(set) var floatingManuallyHidden = false
     var openMain: (() -> Void)?
@@ -274,13 +285,6 @@ final class AppModel: ObservableObject {
             }
         }
     }
-    func loadAllTime(for profileID: String) {
-        let worker = worker
-        queue.async { [weak self] in
-            guard let summary = try? worker.allTime(profileID: profileID, now: Date()) else { return }
-            DispatchQueue.main.async { self?.allTime[profileID] = summary }
-        }
-    }
     func exportGarden() {
         let panel = NSSavePanel()
         panel.nameFieldStringValue = "Pot garden \(Date().formatted(.iso8601.year().month().day())).json"
@@ -334,13 +338,13 @@ final class AppModel: ObservableObject {
         busy = true; observer = nil; timer?.invalidate()
         let worker = worker
         queue.async { [weak self] in
-            let result = Result { try worker.database().eraseAll() }
+            let result = Result { try worker.eraseAll() }
             DispatchQueue.main.async {
                 guard let self else { return }
                 self.busy = false
                 if case .failure = result { self.message = "Local data could not be removed. Please try again."; return }
                 for key in ["onboarded", "selectedID", "displayMode", "plantSize", "idleDelay", "appearance", "floatingX", "floatingY", "roots.codex", "roots.claude", "disabled.codex", "disabled.claude", "gardenPaused", "floatingCorner"] { UserDefaults.standard.removeObject(forKey: key) }
-                self.snapshots = []; self.detections = []; self.roots = [:]; self.selectedID = ""; self.allTime = [:]
+                self.snapshots = []; self.detections = []; self.roots = [:]; self.selectedID = ""
                 self.onboarded = false; self.onboardingStep = 0; self.showSettings = false
                 self.pendingScan = false; self.enabledProviders = Set(Provider.allCases)
                 self.mode = .whileIWork; self.plantSize = 180; self.idleDelay = 180; self.appearance = "system"; self.gardenPaused = false; self.corner = .bottomRight

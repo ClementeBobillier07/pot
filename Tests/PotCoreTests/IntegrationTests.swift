@@ -94,11 +94,20 @@ final class IntegrationTests:XCTestCase {
         try (Data(repeating:65,count:4*1024*1024+1)+Data([10])+line(claude())).write(to:file)
         let report=try LogIngestor(store:db).scanFile(file,provider:.claude)
         XCTAssertEqual(report.incompleteFiles,0);XCTAssertEqual(try db.events().count,1)
-        // An oversized assistant record could hide usage, so it keeps coverage partial.
-        let relevant=root.appendingPathComponent("oversized-assistant.jsonl")
-        try (Data("{\"type\":\"assistant\",\"pad\":\"".utf8)+Data(repeating:65,count:4*1024*1024+1)+Data("\"}\n".utf8)+line(claude(id:"after"))).write(to:relevant)
-        XCTAssertEqual(try LogIngestor(store:db).scanFile(relevant,provider:.claude).incompleteFiles,1)
+        // A 6 MiB assistant record (e.g. a large tool_use input) is parsed normally.
+        var big=claude(id:"big");var message=big["message"] as! [String:Any];message["content"]=[["type":"text","text":String(repeating:"B",count:6*1024*1024)]];big["message"]=message
+        let large=root.appendingPathComponent("large-assistant.jsonl")
+        try line(big).write(to:large)
+        XCTAssertEqual(try LogIngestor(store:db).scanFile(large,provider:.claude).incompleteFiles,0)
         XCTAssertEqual(try db.events().count,2)
+        // Beyond the limit an assistant record could hide usage. Claude Code writes "type" after
+        // "message", so the marker sits past the limit; coverage must still turn partial.
+        let relevant=root.appendingPathComponent("oversized-assistant.jsonl")
+        try (Data("{\"message\":{\"pad\":\"".utf8)+Data(repeating:65,count:17*1024*1024)+Data("\"},\"type\":\"assistant\"}\n".utf8)+line(claude(id:"after"))).write(to:relevant)
+        var report2=try LogIngestor(store:db).scanFile(relevant,provider:.claude)
+        while report2.truncatedWork && report2.incompleteFiles==0 {report2=try LogIngestor(store:db).scanFile(relevant,provider:.claude)}
+        XCTAssertEqual(report2.incompleteFiles,1)
+        XCTAssertEqual(try db.events().count,3)
     }
     func testPricesHaveExactCacheSemanticsAndMissingCategoriesStayPartial() throws {
         let catalog=try PriceCatalog.bundled()
@@ -297,6 +306,24 @@ final class IntegrationTests:XCTestCase {
         XCTAssertEqual(UsageStatistics.summary(events:events,period:.month,now:now,timeZone:zone,catalog:catalog).tokens,60)
         let all=UsageStatistics.summary(events:events,period:.all,now:now,timeZone:zone,catalog:catalog)
         XCTAssertEqual(all.tokens,100);XCTAssertEqual(all.events,4);XCTAssertEqual(all.firstEvent,events[3].timestamp)
+    }
+    func testCombinedPeriodsAddTotalsAndKeepUnpricedHistoryPartial() throws {
+        let catalog=try PriceCatalog.bundled()
+        let old=UsageStatistics.summary([UsageEvent(id:"o",provider:.codex,timestamp:Date(timeIntervalSince1970:0),model:"unknown-model",input:100,output:0)],catalog:catalog)
+        let recent=UsageStatistics.summary([UsageEvent(id:"r",provider:.codex,timestamp:Date(timeIntervalSince1970:1000),model:"gpt-5.2",input:1_000_000,output:0)],catalog:catalog)
+        let all=old.combined(with:recent)
+        XCTAssertEqual(all.tokens,1_000_100);XCTAssertEqual(all.events,2)
+        XCTAssertEqual(all.estimatedUSD,Decimal(string:"1.75"));XCTAssertTrue(all.partial)
+        XCTAssertEqual(all.firstEvent,Date(timeIntervalSince1970:0));XCTAssertEqual(all.lastEvent,Date(timeIntervalSince1970:1000))
+        XCTAssertEqual(PeriodSummary.empty.combined(with:.empty),.empty)
+    }
+    func testUnchangedFilesDoNotConsumeThePerPassFileBudget() throws {
+        // Thousands of already-imported files must not stall later new files.
+        let db=try store(),i=LogIngestor(store:db)
+        for n in 0..<30 {try line(claude(id:"m\(n)")).write(to:root.appendingPathComponent("f\(n).jsonl"))}
+        XCTAssertEqual(try i.scan(root:root,provider:.claude).filesRead,30)
+        let second=try i.scan(root:root,provider:.claude)
+        XCTAssertEqual(second.filesRead,0);XCTAssertEqual(second.filesScanned,30);XCTAssertFalse(second.truncatedWork)
     }
     func testGardenExportHasDailyTotalsButNoIdentifiers() throws {
         let catalog=try PriceCatalog.bundled()

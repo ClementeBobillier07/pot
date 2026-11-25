@@ -20,14 +20,20 @@ struct LineScanner {
     private var buffer = Data()
     private var mode: Mode
     private var oversized = false
+    /// Last bytes of an oversized record, so a usage marker split across chunks is still found.
+    private var tail = Data()
 
     /// Codex writes `"type"` within the first ~90 bytes of every record (verified on real logs).
     static let codexDecisionWindow = 512
     static let codexMarkers: [[UInt8]] = ["token_usage_record", "session_meta", "turn_context", "token_count", "thread_settings_applied"].map { Array("\"type\":\"\($0)\"".utf8) }
+        // Pricing-mode hints the adapter reads from any record.
+        + ["\"service_tier\"", "\"fast_mode\""].map { Array($0.utf8) }
     static let claudeMarker = Array("\"type\":\"assistant\"".utf8)
     static let typeMarker = Array("\"type\":\"".utf8)
 
-    init(provider: Provider, resumeDiscarding: Bool = false, lineLimit: Int = 4 * 1024 * 1024) {
+    /// The limit must stay below the 32 MiB per-pass read budget so a partial record re-read
+    /// on the next pass always completes.
+    init(provider: Provider, resumeDiscarding: Bool = false, lineLimit: Int = 16 * 1024 * 1024) {
         self.provider = provider
         self.lineLimit = lineLimit
         self.mode = resumeDiscarding ? .skip : .undecided
@@ -66,13 +72,12 @@ struct LineScanner {
         switch mode {
         case .skip: return
         case .keep:
-            if oversized { return }
+            if oversized { watchOversized(part); return }
             if buffer.count + part.count > lineLimit {
                 buffer.append(contentsOf: part.prefix(max(0, lineLimit - buffer.count)))
                 // An oversized record matters only if it is usage-bearing.
                 if isRelevant(buffer, complete: false) { incomplete = true }
-                oversized = true
-                buffer.removeAll(keepingCapacity: false)
+                startOversized()
                 return
             }
             buffer.append(contentsOf: part)
@@ -86,8 +91,23 @@ struct LineScanner {
     private mutating func enforceLimit() {
         guard buffer.count > lineLimit else { return }
         if isRelevant(buffer, complete: false) { incomplete = true }
+        startOversized()
+    }
+
+    private mutating func startOversized() {
+        tail = buffer.suffix(64)
         oversized = true
         buffer.removeAll(keepingCapacity: false)
+    }
+
+    /// Claude Code writes the top-level `"type"` after the `message` object, so the marker of an
+    /// oversized assistant record can appear after the limit. Keep scanning without buffering.
+    private mutating func watchOversized(_ part: UnsafeRawBufferPointer) {
+        guard provider == .claude, !incomplete else { return }
+        var window = tail
+        window.append(contentsOf: part)
+        if contains(window, Self.claudeMarker) { incomplete = true }
+        tail = window.suffix(64)
     }
 
     private mutating func decideCodex() {
@@ -98,7 +118,7 @@ struct LineScanner {
     }
 
     private mutating func finishLine(record: (Data) -> Void) {
-        defer { buffer.removeAll(keepingCapacity: buffer.count <= 1 << 20); mode = .undecided; oversized = false }
+        defer { buffer.removeAll(keepingCapacity: buffer.count <= 1 << 20); mode = .undecided; oversized = false; tail.removeAll() }
         guard mode != .skip, !oversized, !buffer.isEmpty else { return }
         if mode == .undecided, provider == .codex {
             decideCodex()

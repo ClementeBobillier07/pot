@@ -34,6 +34,22 @@ public struct PeriodSummary: Sendable, Equatable {
     public var events: Int
     public var firstEvent: Date?
     public var lastEvent: Date?
+    /// Sum of two disjoint periods. An unpriced side with events keeps the result partial.
+    public func combined(with other: PeriodSummary) -> PeriodSummary {
+        func add(_ a: Int64, _ b: Int64) -> Int64 { let (r, o) = a.addingReportingOverflow(b); return o ? Int64.max : r }
+        var r = self
+        r.tokens = add(tokens, other.tokens); r.input = add(input, other.input); r.output = add(output, other.output)
+        r.cacheRead = add(cacheRead, other.cacheRead); r.cacheWrite = add(cacheWrite, other.cacheWrite)
+        r.events = events + other.events
+        r.firstEvent = [firstEvent, other.firstEvent].compactMap { $0 }.min()
+        r.lastEvent = [lastEvent, other.lastEvent].compactMap { $0 }.max()
+        switch (estimatedUSD, other.estimatedUSD) {
+        case (nil, nil): r.estimatedUSD = r.events == 0 ? 0 : nil
+        case let (a, b): r.estimatedUSD = (a ?? 0) + (b ?? 0)
+        }
+        r.partial = partial || other.partial || (estimatedUSD == nil && events > 0) || (other.estimatedUSD == nil && other.events > 0)
+        return r
+    }
     public static let empty = PeriodSummary(tokens: 0, input: 0, output: 0, cacheRead: 0, cacheWrite: 0, estimatedUSD: 0, partial: false, events: 0, firstEvent: nil, lastEvent: nil)
 }
 

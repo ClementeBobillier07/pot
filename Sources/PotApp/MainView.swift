@@ -48,10 +48,7 @@ struct MainView: View {
         .background(TrackpadNavigation {
             if model.onboarded && !model.showSettings { model.navigate($0); selectedDate = nil }
         })
-        .onChange(of: model.selectedID) { _, id in
-            selectedDate = nil
-            if period == .all { model.loadAllTime(for: id) }
-        }
+        .onChange(of: model.selectedID) { _, _ in selectedDate = nil }
         .onMoveCommand { direction in
             guard model.onboarded, !model.showSettings else { return }
             if direction == .left { model.navigate(-1) }
@@ -61,7 +58,7 @@ struct MainView: View {
 
     private func accountView(_ account: AccountSnapshot) -> some View {
         let selected = selectedDate.flatMap { date in account.days.first { Calendar.current.isDate($0.date, inSameDayAs: date) } }
-        let summary = period == .all ? model.allTime[account.profile.id] : account.periods[period]
+        let summary = account.periods[period]
         let headlineTokens = selected?.tokens ?? summary?.tokens
         let headlineUSD = selected.map { $0.estimatedUSD } ?? summary?.estimatedUSD
         let headlinePartial = selected?.partial ?? summary?.partial ?? false
@@ -78,10 +75,7 @@ struct MainView: View {
                 Picker("Period", selection: $period) {
                     ForEach(UsagePeriod.allCases) { Text($0.title).tag($0) }
                 }.pickerStyle(.segmented).labelsHidden().frame(width: 290).padding(.bottom, 6)
-                .onChange(of: period) { _, value in
-                    selectedDate = nil
-                    if value == .all { model.loadAllTime(for: account.profile.id) }
-                }
+                .onChange(of: period) { _, _ in selectedDate = nil }
                 Text(headlineTokens.map { $0.formatted() } ?? "…")
                     .font(.system(size: 32, weight: .light, design: .rounded)).monospacedDigit()
                     .contentTransition(.numericText())

@@ -117,7 +117,7 @@ enum ClaudeAdapter {
         let hour=count(creation?["ephemeral_1h_input_tokens"])
         let model=m["model"] as? String ?? "unknown"
         // Claude Code writes zero-usage "<synthetic>" placeholder messages; they are not API calls.
-        if model=="<synthetic>" || (input==0 && output==0 && (count(u["cache_read_input_tokens"]) ?? 0)==0 && (count(u["cache_creation_input_tokens"]) ?? 0)==0) {return ParseResult()}
+        if model=="<synthetic>" || (input==0 && output==0 && cache==0 && write==0) {return ParseResult()}
         // A stable assistant message ID also deduplicates partial lines where requestId arrives later.
         let id="claude:"+metricID(messageID)
         let account=(o["account_id"] as? String).map{"claude:account:"+metricID($0)}
