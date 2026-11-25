@@ -1,0 +1,16 @@
+.build/
+.swiftpm/
+.DS_Store
+dist/
+artifacts/
+node_modules/
+.next/
+out/
+.env*
+!.env.example
+*.sqlite*
+*.db
+*.dmg
+*.app/
+attachments/
+coverage/
