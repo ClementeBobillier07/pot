@@ -2,7 +2,7 @@
 
 A little plant on your Mac. You code. It grows.
 
-Native local-first macOS utility in development. **Not yet validated as a macOS build.** Implementation was prepared on Linux, which cannot compile or execute AppKit. See [BASELINE.md](BASELINE.md), [BLOCKERS.md](BLOCKERS.md) and the [acceptance matrix](docs/ACCEPTANCE.md) for actual evidence. No release or public deployment has been created.
+Native local-first macOS utility in development. **Built, tested and run on macOS 27 (Apple Silicon) with real Codex and Claude Code logs**, whose counts reconcile exactly with independent oracles. Interactive UI QA, beta and signed release are pending. See [BASELINE.md](BASELINE.md), [BLOCKERS.md](BLOCKERS.md), the [acceptance matrix](docs/ACCEPTANCE.md) and the [handoff prompt](docs/HANDOFF.md). No release or public deployment has been created.
 
 Architecture: `Sources/PotCore` contains local integration, SQLite, statistics and procedural growth. `Sources/PotApp` provides SwiftUI/AppKit surfaces. `Sources/PotDev` contains explicit development-only simulations. `landing` is an independent local Next.js site. `scripts` prepares macOS distribution without publishing.
 
