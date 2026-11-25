@@ -1,6 +1,8 @@
 # Native macOS acceptance checklist
 
-Status: **pending — Linux cannot run the native app.** Do not mark an item passed solely because Swift core tests succeed on Linux or a cross-compiled Mach-O file exists.
+Status (2026-11-25): build, tests, launch, real-data import/reconciliation, transparent floating panel rendering, universal local DMG, and idle footprint verified on macOS 27.0.1 / Apple Silicon (see BASELINE.md). **Interactive items below remain pending** (hover, drag, click-through, focus, Spaces, displays, sleep, login items, VoiceOver). Do not mark an item passed solely because Swift core tests succeed.
+
+Quick start for a QA run: `swift run Pot` (development, defaults domain `Pot`) or install `artifacts/Pot-*-local.app` into /Applications (defaults domain `com.pot.mac`). `swift run Pot --show-window` opens the garden window directly. Reset with Settings → Delete local data, or `rm -rf ~/Library/Application\ Support/Pot && defaults delete Pot`.
 
 For each run record hardware, CPU architecture, macOS version, Xcode/Swift version, Pot commit, Codex/Claude versions and whether an installed `.app` or `swift run` was used. Do not include personal log contents, email addresses or secrets in the report.
 
@@ -38,6 +40,8 @@ For each run record hardware, CPU architecture, macOS version, Xcode/Swift versi
 - The panel appearing, hovering or dragging must not steal focus from the active application. Test typing into another application while activity begins.
 - Empty transparent regions must not unnecessarily obstruct interaction with underlying windows. Test control hit targets and cursor tracking along the silhouette.
 - X hides the panel while Pot stays alive. Recover it using the menu item. In “While I work”, closing it suppresses the current activity session and new activity after idle may show it again.
+- Onboarding corner picker and Settings → Corner place the plant in each of the four corners inside the visible frame (Dock/menu bar excluded).
+- Menu bar: Presentation submenu switches the three modes; Pause/Resume garden toggles and the garden shows "Garden paused"; resuming after days does not wilt the plant.
 - Test all three display modes; idle timeout/hysteresis; manual hide; agent bursts; activity on a different selected provider. Historical import must not trigger a welcome dance or switch the selected plant.
 - Test scaling, all screen corners, Dock at bottom/left/right, menu-bar autohide, Retina/non-Retina monitors, resolution changes and unplugging the saved monitor. Ensure panel remains reachable.
 - Test Spaces, full-screen applications and Stage Manager separately. Record any intentional visibility limitation; do not assume collectionBehavior alone proves support.

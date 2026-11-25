@@ -12,6 +12,12 @@ struct AccountSnapshot {
     var lastActivity: Date?
     var coverage: String
     var priceReference: String
+    /// Today / 7 days / 30 days from the in-memory 45-day window. "All" is loaded on demand.
+    var periods: [UsagePeriod: PeriodSummary] = [:]
+    var historyStart: Date?
+    var recordCount = 0
+    var lastRead = Date()
+    var paused = false
 }
 
 /// Confined to AppModel's serial ingestion queue; never touched concurrently.
@@ -28,7 +34,7 @@ private final class GardenWorker: @unchecked Sendable {
         return value
     }
 
-    func scan(roots: [Provider: [URL]], detections: [AgentDetection], now: Date) throws -> [AccountSnapshot] {
+    func scan(roots: [Provider: [URL]], detections: [AgentDetection], paused: Bool, now: Date) throws -> [AccountSnapshot] {
         let db = try database()
         pendingImport = false
         let catalog = try PriceCatalog.bundled()
@@ -73,13 +79,33 @@ private final class GardenWorker: @unchecked Sendable {
                 plant = PlantState(seed: UInt64.random(in: 1...UInt64.max), provider: profile.provider, createdAt: profile.createdAt)
             }
             var updated = plant
+            if !paused { PlantEngine.setPaused(false, state: &updated, now: now) }
             PlantEngine.advance(state: &updated, events: events, now: now, dataAvailable: availability[profile.provider] ?? false)
+            if paused { PlantEngine.setPaused(true, state: &updated, now: now) }
             try db.savePlantData(profileID: profile.id, data: JSONEncoder().encode(updated))
+            let range = try db.coverage(profileID: profile.id)
+            var periods: [UsagePeriod: PeriodSummary] = [:]
+            for period in [UsagePeriod.today, .week, .month] {
+                periods[period] = UsageStatistics.summary(events: events, period: period, now: now, timeZone: .current, catalog: catalog)
+            }
             return AccountSnapshot(profile: profile, plant: updated,
                 days: UsageStatistics.lastSevenDays(events: events, now: now, timeZone: .current, catalog: catalog),
                 lastActivity: events.filter { $0.timestamp <= now }.map(\.timestamp).max(),
-                coverage: coverage[profile.provider] ?? "No source available · health protected", priceReference: catalog.verifiedAt)
+                coverage: coverage[profile.provider] ?? "No source available · health protected", priceReference: catalog.verifiedAt,
+                periods: periods, historyStart: range.first, recordCount: range.count, lastRead: now, paused: paused)
         }
+    }
+
+    func allTime(profileID: String, now: Date) throws -> PeriodSummary {
+        UsageStatistics.summary(events: try database().events(profileID: profileID), period: .all, now: now, catalog: try PriceCatalog.bundled())
+    }
+
+    func exportData(now: Date) throws -> Data {
+        let db = try database()
+        let profiles = try db.profiles()
+        var plants: [String: PlantState] = [:]
+        for profile in profiles { if let data = try db.plantData(profileID: profile.id) { plants[profile.id] = try JSONDecoder().decode(PlantState.self, from: data) } }
+        return try GardenExport.make(profiles: profiles, events: try db.events(), plants: plants, catalog: try PriceCatalog.bundled(), now: now)
     }
 }
 
@@ -109,6 +135,18 @@ final class AppModel: ObservableObject {
     @Published var appearance = UserDefaults.standard.string(forKey: "appearance") ?? "system" {
         didSet { UserDefaults.standard.set(appearance, forKey: "appearance"); applyAppearance() }
     }
+    /// "Pause the garden" (vacation): freezes growth and deterioration for every plant.
+    @Published var gardenPaused = UserDefaults.standard.bool(forKey: "gardenPaused") {
+        didSet { UserDefaults.standard.set(gardenPaused, forKey: "gardenPaused"); scan() }
+    }
+    @Published var corner = FloatingCorner(rawValue: UserDefaults.standard.string(forKey: "floatingCorner") ?? "") ?? .bottomRight {
+        didSet {
+            UserDefaults.standard.set(corner.rawValue, forKey: "floatingCorner")
+            UserDefaults.standard.removeObject(forKey: "floatingX"); UserDefaults.standard.removeObject(forKey: "floatingY")
+            NotificationCenter.default.post(name: .potResetPosition, object: nil)
+        }
+    }
+    @Published var allTime: [String: PeriodSummary] = [:]
     @Published private(set) var floatingVisible = false
     @Published private(set) var floatingManuallyHidden = false
     var openMain: (() -> Void)?
@@ -217,8 +255,9 @@ final class AppModel: ObservableObject {
         let sources = roots.filter { enabledProviders.contains($0.key) }
         let agents = detections.filter { enabledProviders.contains($0.provider) }
         let worker = worker
+        let paused = gardenPaused
         queue.async { [weak self] in
-            let result = Result { try worker.scan(roots: sources, detections: agents, now: Date()) }
+            let result = Result { try worker.scan(roots: sources, detections: agents, paused: paused, now: Date()) }
             let moreHistory = worker.pendingImport
             DispatchQueue.main.async {
                 guard let self else { return }
@@ -232,6 +271,27 @@ final class AppModel: ObservableObject {
                 }
                 self.updateFloating()
                 if self.pendingScan || moreHistory { self.pendingScan = false; self.scan() }
+            }
+        }
+    }
+    func loadAllTime(for profileID: String) {
+        let worker = worker
+        queue.async { [weak self] in
+            guard let summary = try? worker.allTime(profileID: profileID, now: Date()) else { return }
+            DispatchQueue.main.async { self?.allTime[profileID] = summary }
+        }
+    }
+    func exportGarden() {
+        let panel = NSSavePanel()
+        panel.nameFieldStringValue = "Pot garden \(Date().formatted(.iso8601.year().month().day())).json"
+        panel.allowedContentTypes = [.json]
+        panel.message = "Daily token totals, estimated API values and plant state. No conversations, paths or account identifiers."
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        let worker = worker
+        queue.async { [weak self] in
+            let result = Result { try worker.exportData(now: Date()).write(to: url, options: .atomic) }
+            DispatchQueue.main.async {
+                if case .failure = result { self?.message = "The export could not be written. Your garden is unchanged." }
             }
         }
     }
@@ -279,11 +339,11 @@ final class AppModel: ObservableObject {
                 guard let self else { return }
                 self.busy = false
                 if case .failure = result { self.message = "Local data could not be removed. Please try again."; return }
-                for key in ["onboarded", "selectedID", "displayMode", "plantSize", "idleDelay", "appearance", "floatingX", "floatingY", "roots.codex", "roots.claude", "disabled.codex", "disabled.claude"] { UserDefaults.standard.removeObject(forKey: key) }
-                self.snapshots = []; self.detections = []; self.roots = [:]; self.selectedID = ""
+                for key in ["onboarded", "selectedID", "displayMode", "plantSize", "idleDelay", "appearance", "floatingX", "floatingY", "roots.codex", "roots.claude", "disabled.codex", "disabled.claude", "gardenPaused", "floatingCorner"] { UserDefaults.standard.removeObject(forKey: key) }
+                self.snapshots = []; self.detections = []; self.roots = [:]; self.selectedID = ""; self.allTime = [:]
                 self.onboarded = false; self.onboardingStep = 0; self.showSettings = false
                 self.pendingScan = false; self.enabledProviders = Set(Provider.allCases)
-                self.mode = .whileIWork; self.plantSize = 180; self.idleDelay = 180; self.appearance = "system"
+                self.mode = .whileIWork; self.plantSize = 180; self.idleDelay = 180; self.appearance = "system"; self.gardenPaused = false; self.corner = .bottomRight
                 self.policy.show(); self.updateFloating()
             }
         }

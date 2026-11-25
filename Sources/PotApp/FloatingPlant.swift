@@ -91,7 +91,10 @@ final class FloatingPlantController {
         if defaults.object(forKey: "floatingX") != nil, defaults.object(forKey: "floatingY") != nil {
             panel.setFrameOrigin(NSPoint(x: defaults.double(forKey: "floatingX"), y: defaults.double(forKey: "floatingY")))
         } else if let screen = NSScreen.main {
-            panel.setFrameOrigin(NSPoint(x: screen.visibleFrame.maxX - panel.frame.width - 20, y: screen.visibleFrame.minY + 20))
+            // Corner chosen in onboarding/settings; visibleFrame already excludes Dock and menu bar.
+            let v = screen.visibleFrame
+            let o = model.corner.origin(windowWidth: panel.frame.width, windowHeight: panel.frame.height, visibleMinX: v.minX, visibleMinY: v.minY, visibleMaxX: v.maxX, visibleMaxY: v.maxY)
+            panel.setFrameOrigin(NSPoint(x: o.x, y: o.y))
         }
         clampToScreens()
     }

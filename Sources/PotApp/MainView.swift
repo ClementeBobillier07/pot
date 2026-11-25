@@ -10,6 +10,7 @@ struct MainView: View {
     @ObservedObject var model: AppModel
     @State private var dollars = false
     @State private var selectedDate: Date?
+    @State private var period: UsagePeriod = .today
     var body: some View {
         VStack(spacing: 0) {
             HStack {
@@ -47,7 +48,10 @@ struct MainView: View {
         .background(TrackpadNavigation {
             if model.onboarded && !model.showSettings { model.navigate($0); selectedDate = nil }
         })
-        .onChange(of: model.selectedID) { _, _ in selectedDate = nil }
+        .onChange(of: model.selectedID) { _, id in
+            selectedDate = nil
+            if period == .all { model.loadAllTime(for: id) }
+        }
         .onMoveCommand { direction in
             guard model.onboarded, !model.showSettings else { return }
             if direction == .left { model.navigate(-1) }
@@ -56,23 +60,38 @@ struct MainView: View {
     }
 
     private func accountView(_ account: AccountSnapshot) -> some View {
-        let today = account.days.last
         let selected = selectedDate.flatMap { date in account.days.first { Calendar.current.isDate($0.date, inSameDayAs: date) } }
-        let point = selected ?? today
+        let summary = period == .all ? model.allTime[account.profile.id] : account.periods[period]
+        let headlineTokens = selected?.tokens ?? summary?.tokens
+        let headlineUSD = selected.map { $0.estimatedUSD } ?? summary?.estimatedUSD
+        let headlinePartial = selected?.partial ?? summary?.partial ?? false
         return ScrollView {
             VStack(spacing: 5) {
                 Text(account.profile.provider.displayName).font(.system(size: 24, weight: .medium, design: .serif))
                 Text(account.profile.email ?? account.profile.alias).font(.callout).foregroundStyle(.secondary).lineLimit(2)
                 PlantView(plant: account.plant, active: model.mainVisible && isActive(account)).frame(width: 290, height: 300)
                     .padding(.top, -6).padding(.bottom, 4)
-                Text(point.map { $0.tokens.formatted() } ?? "0")
+                if account.paused {
+                    Label("Garden paused · growth and wilting are on hold", systemImage: "pause.circle")
+                        .font(.caption).foregroundStyle(.secondary).padding(.bottom, 4)
+                }
+                Picker("Period", selection: $period) {
+                    ForEach(UsagePeriod.allCases) { Text($0.title).tag($0) }
+                }.pickerStyle(.segmented).labelsHidden().frame(width: 290).padding(.bottom, 6)
+                .onChange(of: period) { _, value in
+                    selectedDate = nil
+                    if value == .all { model.loadAllTime(for: account.profile.id) }
+                }
+                Text(headlineTokens.map { $0.formatted() } ?? "…")
                     .font(.system(size: 32, weight: .light, design: .rounded)).monospacedDigit()
-                Text(selected.map { "tokens · " + $0.date.formatted(.dateTime.month(.abbreviated).day()) } ?? "tokens today")
+                    .contentTransition(.numericText())
+                Text(selected.map { "tokens · " + $0.date.formatted(.dateTime.month(.abbreviated).day()) } ?? periodCaption(account))
                     .font(.callout).foregroundStyle(.secondary)
                 HStack(spacing: 5) {
-                    Text(money(point?.estimatedUSD))
-                    Text("Estimated API value\(point?.partial == true ? " · partial" : "")")
+                    Text(headlineTokens == nil ? "…" : money(headlineUSD ?? nil))
+                    Text("Estimated API value\(headlinePartial ? " · partial" : "")")
                 }.font(.caption).foregroundStyle(.secondary).padding(.top, 3)
+                .help("Reference API prices for the same tokens. Not your bill or subscription usage.")
                 VStack(spacing: 12) {
                     HStack {
                         Text("Last 7 days").font(.callout)
@@ -119,10 +138,24 @@ struct MainView: View {
                 }
                 Text(account.coverage).font(.caption).foregroundStyle(.secondary)
                     .multilineTextAlignment(.center).padding(.horizontal, 30)
+                Text(coverageLine(account)).font(.caption).foregroundStyle(.secondary)
+                    .multilineTextAlignment(.center).padding(.horizontal, 30)
                 Text("Reference API rates · \(account.priceReference)")
                     .font(.caption).foregroundStyle(.secondary).padding(.bottom, 20)
             }
         }
+    }
+    private func periodCaption(_ account: AccountSnapshot) -> String {
+        switch period {
+        case .today: return "tokens today"
+        case .week: return "tokens · last 7 days"
+        case .month: return "tokens · last 30 days"
+        case .all: return account.historyStart.map { "tokens · since " + $0.formatted(.dateTime.month(.abbreviated).day().year()) } ?? "tokens · all local history"
+        }
+    }
+    private func coverageLine(_ account: AccountSnapshot) -> String {
+        let since = account.historyStart.map { "Data since " + $0.formatted(.dateTime.month(.abbreviated).day().year()) } ?? "No records yet"
+        return "\(since) · \(account.recordCount.formatted()) calls · read \(account.lastRead.formatted(date: .omitted, time: .shortened))"
     }
     private func chartValue(_ day: DailyUsage) -> Double {
         dollars ? day.estimatedUSD.map { NSDecimalNumber(decimal: $0).doubleValue } ?? 0 : Double(day.tokens)
@@ -198,6 +231,12 @@ private struct OnboardingView: View {
                         }.padding(16).frame(maxWidth: .infinity).background(.quaternary.opacity(0.3), in: RoundedRectangle(cornerRadius: 16))
                     }.buttonStyle(.plain)
                 }
+                if model.mode != .menuBarOnly {
+                    VStack(spacing: 8) {
+                        Text("Which corner?").font(.headline)
+                        CornerPicker(selection: $model.corner)
+                    }.padding(.top, 4)
+                }
                 Button("Make yourself at home") { model.onboardingStep = 4 }.buttonStyle(.borderedProminent)
             default:
                 Image(systemName: "leaf.fill").font(.system(size: 50)).foregroundStyle(forest)
@@ -237,8 +276,15 @@ private struct SettingsView: View {
                     Button("Save alias") { model.rename(alias) }
                 }
             }
+            Section("Garden") {
+                Toggle("Pause the garden", isOn: $model.gardenPaused)
+                Text("For holidays and breaks. Growth and wilting stop until you resume; statistics keep counting.")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
             Section("At home on your Mac") {
                 Picker("Display mode", selection: $model.mode) { ForEach(DisplayMode.allCases, id: \.rawValue) { Text($0.title).tag($0) } }
+                Picker("Corner", selection: $model.corner) { ForEach(FloatingCorner.allCases, id: \.rawValue) { Text($0.title).tag($0) } }
+                    .disabled(model.mode == .menuBarOnly)
                 Slider(value: $model.plantSize, in: 130...280, step: 10) { Text("Floating plant size") }
                 Button("Reset floating position") {
                     UserDefaults.standard.removeObject(forKey: "floatingX"); UserDefaults.standard.removeObject(forKey: "floatingY")
@@ -258,6 +304,9 @@ private struct SettingsView: View {
                     NSWorkspace.shared.open(URL(string: "https://github.com/ClementeBobillier07/pot/releases")!)
                 }
                 Text("Opens GitHub in your browser. Pot does not install updates automatically.").font(.caption).foregroundStyle(.secondary)
+                Button("Export garden and daily totals…") { model.exportGarden() }.disabled(model.busy || model.snapshots.isEmpty)
+                Text("Saves a JSON file you control: daily token totals, estimated values and plant state. No conversations, paths or account identifiers.")
+                    .font(.caption).foregroundStyle(.secondary)
                 Button("Delete local data and plants…", role: .destructive) { confirmErase = true }.disabled(model.busy)
                 Button("Quit Pot") { NSApp.terminate(nil) }
             }
@@ -267,6 +316,28 @@ private struct SettingsView: View {
             Button("Delete all Pot data", role: .destructive) { model.eraseData() }
             Button("Cancel", role: .cancel) {}
         } message: { Text("This removes Pot’s usage history, plants and preferences. Agent logs are untouched. Reimporting logs starts a new garden; records already removed by your agents cannot be recovered.") }
+    }
+}
+
+/// Four tappable corners of a miniature screen; bottom right is the suggested default.
+private struct CornerPicker: View {
+    @Binding var selection: FloatingCorner
+    var body: some View {
+        ZStack {
+            RoundedRectangle(cornerRadius: 10).fill(.quaternary.opacity(0.35))
+                .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(.quaternary))
+            VStack {
+                HStack { cell(.topLeft); Spacer(); cell(.topRight) }
+                Spacer()
+                HStack { cell(.bottomLeft); Spacer(); cell(.bottomRight) }
+            }.padding(8)
+        }.frame(width: 190, height: 118)
+    }
+    private func cell(_ corner: FloatingCorner) -> some View {
+        Button { selection = corner } label: {
+            Image(systemName: selection == corner ? "leaf.circle.fill" : "circle.dashed")
+                .font(.system(size: 22)).frame(width: 34, height: 34).contentShape(Rectangle())
+        }.buttonStyle(.plain).accessibilityLabel(corner.title).accessibilityAddTraits(selection == corner ? .isSelected : [])
     }
 }
 

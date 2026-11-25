@@ -143,4 +143,36 @@ final class PlantTests: XCTestCase {
         XCTAssertGreaterThan(flowers.count, 1)
         XCTAssertGreaterThan(Set(flowers.map(\.maturation)).count, 1)
     }
+    func testPausedGardenFreezesBiologyAndDoesNotBankPausedUsage() {
+        var plant = PlantState(seed: 7, provider: .codex, createdAt: start)
+        var events: [UsageEvent] = []
+        for day in 0..<10 { events.append(event(Double(day) * 86400 + 9 * 3600, 120_000)) }
+        PlantEngine.advance(state: &plant, events: events, now: start.addingTimeInterval(10 * 86400))
+        PlantEngine.setPaused(true, state: &plant, now: start.addingTimeInterval(10 * 86400))
+        let frozen = plant
+        // Two weeks of vacation with heavy usage recorded meanwhile.
+        for day in 10..<24 { events.append(event(Double(day) * 86400 + 9 * 3600, 5_000_000)) }
+        PlantEngine.advance(state: &plant, events: events, now: start.addingTimeInterval(24 * 86400))
+        XCTAssertEqual(plant.organs, frozen.organs)
+        XCTAssertEqual(plant.health, frozen.health)
+        XCTAssertEqual(plant.reserve, frozen.reserve)
+        XCTAssertEqual(plant.historicalMaturity, frozen.historicalMaturity)
+        PlantEngine.setPaused(false, state: &plant, now: start.addingTimeInterval(24 * 86400))
+        XCTAssertNil(plant.pausedAt)
+        // One quiet day after returning: paused usage is not credited and the pause is not dormancy.
+        PlantEngine.advance(state: &plant, events: events, now: start.addingTimeInterval(25 * 86400))
+        XCTAssertLessThanOrEqual(plant.reserve, frozen.reserve + 0.0001)
+        XCTAssertGreaterThan(plant.health, 0.95)
+        // Without the pause, two silent weeks would have lowered health.
+        var unpaused = frozen; unpaused.pausedAt = nil
+        PlantEngine.advance(state: &unpaused, events: Array(events.prefix(10)), now: start.addingTimeInterval(25 * 86400))
+        XCTAssertLessThan(unpaused.health, plant.health)
+    }
+
+    func testPausedStatePersists() throws {
+        var plant = PlantState(seed: 3, provider: .claude, createdAt: start)
+        PlantEngine.setPaused(true, state: &plant, now: start.addingTimeInterval(3600))
+        let decoded = try JSONDecoder().decode(PlantState.self, from: JSONEncoder().encode(plant))
+        XCTAssertEqual(decoded.pausedAt, plant.pausedAt)
+    }
 }

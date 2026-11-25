@@ -59,6 +59,8 @@ public struct PlantState: Codable, Equatable, Sendable {
     public var nextFlower: Date
     public var creditedBeforeDay: Int
     public var lastReliableObservation: Date
+    /// Set while the person has paused the garden (vacation). Biology and deterioration are frozen.
+    public var pausedAt: Date?
 
     public init(seed: UInt64, provider: Provider, createdAt: Date) {
         self.seed = seed
@@ -113,8 +115,34 @@ public enum PlantEngine {
 
     /// Supply a canonical usage snapshot for this profile, not raw line-by-line deltas.
     /// Energy is independent of prices and never credits history predating the plant.
+    /// "Pause the garden": freezes growth, ageing and deterioration until resumed. Usage that
+    /// happens while paused still appears in statistics but is never banked as energy, and the
+    /// paused time does not count as dormancy afterwards.
+    public static func setPaused(_ paused: Bool, state: inout PlantState, now: Date) {
+        if paused {
+            guard state.pausedAt == nil else { return }
+            state.pausedAt = max(now, state.lastUpdated)
+            state.lastUpdated = max(now, state.lastUpdated)
+        } else if let since = state.pausedAt {
+            let resumeAt = max(now, state.lastUpdated)
+            let duration = max(0, resumeAt.timeIntervalSince(since))
+            state.pausedAt = nil
+            state.lastUpdated = resumeAt
+            // Shift biological clocks so the pause is invisible to dormancy and scheduling.
+            state.lastActivity = state.lastActivity.map { $0.addingTimeInterval(duration) }
+            state.lastReliableObservation = state.lastReliableObservation.addingTimeInterval(duration)
+            state.nextBirth = state.nextBirth.addingTimeInterval(duration)
+            state.nextBranch = state.nextBranch.addingTimeInterval(duration)
+            state.nextFlower = state.nextFlower.addingTimeInterval(duration)
+            // Paused days were never observed by the hourly simulation; do not credit them later.
+            state.creditedBeforeDay = max(state.creditedBeforeDay, day(resumeAt) - 1)
+            state.reserve = min(state.reserve, maximumReserve)
+        }
+    }
+
     public static func advance(state: inout PlantState, events: [UsageEvent], now: Date, dataAvailable: Bool = true) {
         guard now > state.lastUpdated else { return }
+        if state.pausedAt != nil { state.lastUpdated = now; return }
         let start = state.lastUpdated
         let highDay = day(now)
         var seen = Set<String>()

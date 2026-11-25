@@ -64,10 +64,22 @@ final class PotDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         let menu = NSMenu()
         menu.addItem(withTitle: "Open Pot", action: #selector(showMain), keyEquivalent: "")
         menu.addItem(withTitle: model.floatingManuallyHidden ? "Show floating plant" : "Hide floating plant", action: #selector(togglePlant), keyEquivalent: "")
+        let presentation = NSMenuItem(title: "Presentation", action: nil, keyEquivalent: "")
+        let modes = NSMenu()
+        for mode in DisplayMode.allCases {
+            let item = NSMenuItem(title: mode.title, action: #selector(choosePresentation(_:)), keyEquivalent: "")
+            item.representedObject = mode.rawValue
+            item.state = model.mode == mode ? .on : .off
+            item.target = self
+            modes.addItem(item)
+        }
+        presentation.submenu = modes
+        menu.addItem(presentation)
+        menu.addItem(withTitle: model.gardenPaused ? "Resume garden" : "Pause garden", action: #selector(togglePause), keyEquivalent: "")
         menu.addItem(withTitle: "Settings…", action: #selector(showSettings), keyEquivalent: ",")
         menu.addItem(.separator())
         menu.addItem(withTitle: "Quit Pot", action: #selector(quitPot), keyEquivalent: "q")
-        for item in menu.items { item.target = self }
+        for item in menu.items where item.action != nil { item.target = self }
         statusItem.menu = menu
         statusItem.button?.performClick(nil)
         statusItem.menu = nil
@@ -96,6 +108,11 @@ final class PotDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     @objc private func showMain() { openMain() }
     @objc private func showSettings() { model.showSettings = true; openMain() }
     @objc private func togglePlant() { model.toggleFloating() }
+    @objc private func togglePause() { model.gardenPaused.toggle() }
+    @objc private func choosePresentation(_ sender: NSMenuItem) {
+        guard let raw = sender.representedObject as? String, let mode = DisplayMode(rawValue: raw) else { return }
+        model.mode = mode
+    }
     @objc private func quitPot() { NSApp.terminate(nil) }
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { false }
     func windowWillClose(_ notification: Notification) { model.mainVisible = false }

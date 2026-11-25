@@ -1,6 +1,6 @@
 # Local build and future distribution
 
-The implementation workspace is Linux. The scripts below have **not** produced a native macOS application here. No installer, code signature, notarization, release, or clean installation is claimed as verified. macOS acceptance remains open until the app is built and its flows are tested on a Mac.
+Verified on macOS 27.0.1 / Apple Silicon (2026-11-25): `scripts/build-macos.sh --arch universal --dmg` produced an ad-hoc signed universal `.app` (arm64 + x86_64) and a verified local DMG; the app launched. Developer ID signing, notarization, Intel execution and clean-Mac installation are still unverified. Step-by-step launch: [RELEASE.md](RELEASE.md).
 
 ## Requirements
 

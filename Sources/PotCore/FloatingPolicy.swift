@@ -36,3 +36,27 @@ public struct FloatingPolicy: Sendable {
         }
     }
 }
+
+/// Screen corner chosen during onboarding for the floating plant (master doc §3 step 4, §10).
+public enum FloatingCorner: String, Codable, CaseIterable, Sendable {
+    case bottomRight, bottomLeft, topRight, topLeft
+    public var title: String {
+        switch self {
+        case .bottomRight: return "Bottom right"
+        case .bottomLeft: return "Bottom left"
+        case .topRight: return "Top right"
+        case .topLeft: return "Top left"
+        }
+    }
+    /// Origin of a window of `size` inside `visible` (AppKit coordinates, origin bottom-left).
+    public func origin(windowWidth: Double, windowHeight: Double, visibleMinX: Double, visibleMinY: Double, visibleMaxX: Double, visibleMaxY: Double, margin: Double = 20) -> (x: Double, y: Double) {
+        let left = visibleMinX + margin, right = visibleMaxX - windowWidth - margin
+        let bottom = visibleMinY + margin, top = visibleMaxY - windowHeight - margin
+        switch self {
+        case .bottomRight: return (right, bottom)
+        case .bottomLeft: return (left, bottom)
+        case .topRight: return (right, top)
+        case .topLeft: return (left, top)
+        }
+    }
+}

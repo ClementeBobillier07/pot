@@ -285,4 +285,34 @@ final class IntegrationTests:XCTestCase {
         XCTAssertEqual(catalog.estimate([large]).amount,Decimal(string:"2.555")) // >100K prompt: 0.05 + 2.5 + 0.005
         XCTAssertFalse(catalog.estimate([small,large]).partial)
     }
+    func testPeriodSummariesUseCalendarBoundaries() throws {
+        let catalog=try PriceCatalog.bundled()
+        var calendar=Calendar(identifier:.gregorian);calendar.timeZone=TimeZone(identifier:"America/Santiago")!
+        let now=calendar.date(from:DateComponents(year:2026,month:11,day:25,hour:15))!
+        func e(_ daysAgo:Int,_ tokens:Int64)->UsageEvent {UsageEvent(id:"p\(daysAgo)",provider:.claude,timestamp:now.addingTimeInterval(-Double(daysAgo)*86400),model:"claude-opus-5-5",input:tokens,output:0)}
+        let events=[e(0,10),e(3,20),e(20,30),e(100,40)]
+        let zone=calendar.timeZone
+        XCTAssertEqual(UsageStatistics.summary(events:events,period:.today,now:now,timeZone:zone,catalog:catalog).tokens,10)
+        XCTAssertEqual(UsageStatistics.summary(events:events,period:.week,now:now,timeZone:zone,catalog:catalog).tokens,30)
+        XCTAssertEqual(UsageStatistics.summary(events:events,period:.month,now:now,timeZone:zone,catalog:catalog).tokens,60)
+        let all=UsageStatistics.summary(events:events,period:.all,now:now,timeZone:zone,catalog:catalog)
+        XCTAssertEqual(all.tokens,100);XCTAssertEqual(all.events,4);XCTAssertEqual(all.firstEvent,events[3].timestamp)
+    }
+    func testGardenExportHasDailyTotalsButNoIdentifiers() throws {
+        let catalog=try PriceCatalog.bundled()
+        let profile=LocalProfile(id:"codex:account:"+metricID("secret-account"),provider:.codex,alias:"Work")
+        let event=UsageEvent(id:"codex:usage:"+metricID("SECRET-EVENT"),provider:.codex,accountID:profile.id,timestamp:Date(timeIntervalSince1970:1_764_072_000),model:"gpt-6.1-sol",input:1000,output:100,cacheRead:500)
+        let data=try GardenExport.make(profiles:[profile],events:[event],plants:[profile.id:PlantState(seed:1,provider:.codex,createdAt:Date(timeIntervalSince1970:0))],catalog:catalog,timeZone:TimeZone(identifier:"UTC")!)
+        let text=String(decoding:data,as:UTF8.self)
+        XCTAssertTrue(text.contains("\"alias\" : \"Work\""));XCTAssertTrue(text.contains("\"tokens\" : 1600"))
+        XCTAssertFalse(text.contains(metricID("secret-account")));XCTAssertFalse(text.contains(metricID("SECRET-EVENT")))
+    }
+    func testCoverageQueryReportsHistoryRange() throws {
+        let db=try store(),file=root.appendingPathComponent("claude.jsonl")
+        var later=claude(id:"later");later["timestamp"]="2026-11-26T12:00:00Z"
+        try (line(claude())+line(later)).write(to:file)
+        _=try LogIngestor(store:db).scanFile(file,provider:.claude)
+        let c=try db.coverage(profileID:Provider.claude.unattributedProfileID)
+        XCTAssertEqual(c.count,2);XCTAssertEqual(c.first,MetricDate.parse("2026-11-25T12:00:00Z"));XCTAssertEqual(c.last,MetricDate.parse("2026-11-26T12:00:00Z"))
+    }
 }

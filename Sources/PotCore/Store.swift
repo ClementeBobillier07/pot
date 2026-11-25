@@ -67,6 +67,11 @@ public final class PotStore {
         let rows=try query("SELECT payload FROM usage"+filter+" ORDER BY timestamp,id",bindings)
         return try rows.map{try decode(UsageEvent.self,$0[0])}
     }
+    /// First/last event time and count for coverage display, without decoding payloads.
+    public func coverage(profileID:String) throws -> (first:Date?,last:Date?,count:Int) {
+        guard let row=try query("SELECT MIN(timestamp),MAX(timestamp),COUNT(*) FROM usage WHERE profile=?",[profileID]).first else{return (nil,nil,0)}
+        return (Double(row[0]).map{Date(timeIntervalSince1970:$0)},Double(row[1]).map{Date(timeIntervalSince1970:$0)},Int(row[2]) ?? 0)
+    }
     public func savePlantData(profileID:String,data:Data) throws { try put("INSERT OR REPLACE INTO plants VALUES(?,?)",[profileID,data.base64EncodedString()]) }
     public func plantData(profileID:String) throws -> Data? { try query("SELECT payload FROM plants WHERE profile=?",[profileID]).first.flatMap{Data(base64Encoded:$0[0])} }
     public func eraseAll() throws {

@@ -1,0 +1,37 @@
+name: Beta report
+description: Share how Pot behaves on your Mac (no logs, prompts or account details, please).
+labels: [beta]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for testing Pot. Please do **not** paste conversation logs, file paths, emails or tokens from `auth.json`.
+        The `pot-dev reconcile` output below contains only aggregate counts.
+  - type: input
+    id: mac
+    attributes:
+      label: Mac and macOS version
+      placeholder: "MacBook Air M3, macOS 27.0.1"
+    validations:
+      required: true
+  - type: input
+    id: agents
+    attributes:
+      label: Agents and versions
+      placeholder: "Codex desktop 0.169, Claude Code 2.1"
+  - type: textarea
+    id: reconcile
+    attributes:
+      label: "`swift run -c release pot-dev reconcile` output (optional)"
+      render: text
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options: [Onboarding, Counts / prices, Plant growth, Floating plant, Menu bar, Performance, Other]
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened, and what did you expect?
+    validations:
+      required: true
