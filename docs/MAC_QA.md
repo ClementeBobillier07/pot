@@ -1,5 +1,14 @@
 # Native macOS acceptance checklist
 
+Simulated QA run, 2026-11-26 (real HID mouse events + the Accessibility API that VoiceOver uses):
+- PASS close button hides the floating plant without opening Pot or taking focus; the menu bar item's "Show floating plant" brings it back.
+- PASS launch at login: installed in /Applications, the toggle registers Pot as a login item (listed by System Events, persists across relaunch) and unregisters cleanly. A real reboot was not performed.
+- PASS full screen: the floating plant stays visible over a full-screen app and clicking it opens Pot on that Space, in front.
+- PASS missing monitor: a position saved on a disconnected display is pulled back onto the Mac's screen.
+- PASS VoiceOver labels: every control in the window and Settings has a spoken name (toggles/pickers via their title element; the chart reads "Today, Thursday, 26 Nov").
+- PASS light/dark: both readable after making the brand green lighter in dark mode.
+- NOT SIMULATED: sleep/wake (would put the Mac to sleep) and the system-wide Reduce Motion switch; both paths are covered in code (wake rescans and re-clamps; reduce motion pauses sway, dance and transitions).
+
 Verified with real (HID-level) synthetic input on macOS 27.0.1, 2026-11-26: hovering the floating plant does not take focus from the active app; dragging moves the panel (a press that starts on the plant keeps the panel until release) and does not open Pot; a click opens Pot's window in front; a long two-finger swipe switches exactly one plant; the close badge appears on hover.
 
 Status (2026-11-25): build, tests, launch, real-data import/reconciliation, transparent floating panel rendering, universal local DMG, and idle footprint verified on macOS 27.0.1 / Apple Silicon (see BASELINE.md). **Interactive items below remain pending** (hover, drag, click-through, focus, Spaces, displays, sleep, login items, VoiceOver). Do not mark an item passed solely because Swift core tests succeed.

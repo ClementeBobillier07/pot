@@ -4,7 +4,12 @@ import SwiftUI
 import Charts
 import PotCore
 
-private let forest = Color(red: 0.22, green: 0.36, blue: 0.28)
+/// Brand green; lighter in dark mode so "Today", the selected day and page dots keep contrast.
+private let forest = Color(nsColor: NSColor(name: nil) { appearance in
+    appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
+        ? NSColor(red: 0.55, green: 0.76, blue: 0.56, alpha: 1)
+        : NSColor(red: 0.22, green: 0.36, blue: 0.28, alpha: 1)
+})
 
 struct MainView: View {
     @ObservedObject var model: AppModel
