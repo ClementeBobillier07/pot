@@ -50,3 +50,7 @@ Browser QA remains unverified: managed `sites-preview` reached a relay failure (
 Under each download button the site shows the real number of installer downloads from public GitHub Releases (only `Pot-<version>-macOS-<arch>.dmg` assets of stable releases; see `lib/releases.ts`). Before the first release it says "The counter starts with the first release" instead of showing a number. The tooltip explains it counts files, not people.
 
 `lib/trees.ts` holds the future "every N downloads we plant a tree" idea: set `TREE_EVERY` (for example `1000`) and the counter adds "· N trees planted · next in M". It stays hidden at `0`, so nothing is promised before a planting partner exists.
+
+## Variants stay a mystery (2026-11-26, owner)
+
+The website does not show the plant variations, their odds or the copihue. It only says every seed is its own; people discover their plant as it grows.

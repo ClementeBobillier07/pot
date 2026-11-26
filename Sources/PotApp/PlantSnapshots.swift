@@ -64,8 +64,8 @@ enum PlantSnapshots {
     static func renderLandingAndExit(to directory: String) -> Never {
         let output = URL(fileURLWithPath: directory, isDirectory: true)
         let wanted: [(Provider, PlantSpecies, [Int])] = [
-            (.codex, .classic, [0, 1, 3]), (.codex, .blossom, [0, 1, 3]), (.codex, .surprise, [3]), (.codex, .copihue, [3]),
-            (.claude, .classic, [3]), (.claude, .blossom, [3]), (.claude, .surprise, [3]), (.claude, .copihue, [3]),
+            (.codex, .classic, [0, 1, 3]), (.codex, .blossom, [0, 1, 3]),
+            (.claude, .classic, [3]), (.claude, .blossom, [3]),
         ]
         do {
             try FileManager.default.createDirectory(at: output, withIntermediateDirectories: true)

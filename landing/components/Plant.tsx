@@ -4,7 +4,7 @@
  * Stage 0 ≈ day 7, 1 ≈ day 21, 2 ≈ day 45, 3 = fully grown (day 90 of steady work).
  */
 export type Provider = 'codex' | 'claude';
-export type Variant = 'classic' | 'blossom' | 'surprise' | 'copihue';
+export type Variant = 'classic' | 'blossom';
 
 export default function Plant({ provider = 'codex', variant = 'classic', stage = 3, className = '', label, eager = false }: {
   provider?: Provider; variant?: Variant; stage?: number; className?: string; label?: string; eager?: boolean;

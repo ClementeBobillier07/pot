@@ -14,8 +14,6 @@
 
 .site-header nav,.nav-download,.growth-tabs button,.privacy-facts,.display-options b,.site-footer>div{font-size:.875rem}.growth-tabs button{min-height:44px}
 
-.variations{margin-top:28px;display:flex;flex-direction:column;gap:18px}.variation-row{display:grid;grid-template-columns:110px repeat(4,1fr);align-items:end;gap:10px}.variation-agent{font-size:.8rem;font-weight:500;color:var(--ink);align-self:center}.variations figure{margin:0;text-align:center}.variations .plant{width:100%;max-width:150px;margin:0 auto}.variations figcaption{font-size:.75rem;color:var(--ink);margin-top:4px}.variations figcaption span{display:block;color:var(--body);font-size:.72rem}
-@media(max-width:760px){.variation-row{grid-template-columns:repeat(4,1fr)}.variation-agent{grid-column:1/-1;text-align:center}.variations figcaption{font-size:.7rem}}
 
 /* Hero: label and both agents on one row */
 p.works-with{display:flex;flex-wrap:wrap;align-items:center;gap:9px;margin-top:30px;font-size:.85rem;color:var(--ink)}p.works-with .works-label{font-size:.8rem;color:var(--body)}p.works-with .agent{display:inline-flex;align-items:center;gap:7px;font-weight:500}p.works-with .separator{margin:0 4px}
