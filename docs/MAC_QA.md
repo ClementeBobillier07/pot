@@ -35,7 +35,7 @@ For each run record hardware, CPU architecture, macOS version, Xcode/Swift versi
 ## Floating NSPanel
 
 - Exactly one plant, transparent with no card, shadow, title or visible background in light/dark mode.
-- Hover shows only the X and (when several plants exist) left/right arrows; leaving fades controls. Controls never open the main app accidentally.
+- Hover shows only the close button (black ✕ in a white circle with black outline) just above the plant's top-right edge; leaving the plant fades it. Clicking it never opens the main app. There are no arrows on the desktop; plants are switched inside Pot.
 - A plant click opens the main window with the corresponding account. A drag changes position without opening the window; position survives restart.
 - The panel appearing, hovering or dragging must not steal focus from the active application. Test typing into another application while activity begins.
 - Empty transparent regions must not unnecessarily obstruct interaction with underlying windows. Test control hit targets and cursor tracking along the silhouette.

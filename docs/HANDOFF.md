@@ -68,7 +68,7 @@ Para reiniciar el estado de desarrollo: `rm -rf ~/Library/Application\ Support/P
 ## Lo que falta (en orden)
 
 1. **QA interactiva en el Mac** (`docs/MAC_QA.md`). Nunca se probó con clics reales:
-   - Hover: que aparezcan la X y las flechas, y que pulsarlas no abra la app.
+   - Hover: que aparezca la X (círculo blanco con borde negro, arriba a la derecha de la planta) y que pulsarla oculte la planta sin abrir la app. En el escritorio no hay flechas: las plantas se cambian dentro de Pot.
    - Clic en la planta: abre la app con ese perfil.
    - Arrastre y posición guardada.
    - Clics que atraviesan las zonas transparentes.

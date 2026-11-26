@@ -57,6 +57,28 @@ enum PlantLayout {
         let vertical = (anchor.y - 4) / max(1, anchor.y - minY)
         return max(0.72, min(1, horizontal, vertical))
     }
+
+    /// Visible extent of pot and organs in the 320×400 canvas, after the fit zoom.
+    /// The floating panel uses it to place its close button and its hover zone.
+    static func visibleBounds(_ plant: PlantState) -> CGRect {
+        var minX = 88.0, maxX = 232.0, minY = 318.0, maxY = 396.0 // pot
+        for organ in plant.organs {
+            let end = organ.endpoint
+            let reach: Double
+            switch organ.kind {
+            case .stem, .branch: reach = 4
+            case .leaf: reach = 9 + organ.size * 5.5
+            case .flower: reach = 18 + organ.size * 1.9
+            }
+            for p in [(organ.x, organ.y), (end.x, end.y)] {
+                minX = min(minX, p.0 * 320 - reach); maxX = max(maxX, p.0 * 320 + reach); minY = min(minY, p.1 * 400 - reach)
+            }
+        }
+        let fit = fitScale(plant)
+        func t(_ x: Double, _ y: Double) -> CGPoint { CGPoint(x: anchor.x + (x - anchor.x) * fit, y: anchor.y + (y - anchor.y) * fit) }
+        let a = t(minX, minY), b = t(maxX, maxY)
+        return CGRect(x: max(0, a.x), y: max(0, a.y), width: min(320, b.x) - max(0, a.x), height: min(400, b.y) - max(0, a.y))
+    }
 }
 
 struct PlantView: View {
