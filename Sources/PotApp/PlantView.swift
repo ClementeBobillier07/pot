@@ -180,8 +180,10 @@ private struct FormDrawing: View {
                 context.translateBy(x: 0, y: size.height - 400 * scale)
                 context.scaleBy(x: scale, y: scale)
             } else {
+                // Whole canvas, centred horizontally and resting on the bottom edge: the pot stays
+                // put and the plant grows upward into the space above it.
                 let scale = min(size.width / 320, size.height / 400)
-                context.translateBy(x: (size.width - 320 * scale) / 2, y: (size.height - 400 * scale) / 2)
+                context.translateBy(x: (size.width - 320 * scale) / 2, y: size.height - 400 * scale)
                 context.scaleBy(x: scale, y: scale)
             }
             let leafColours = Palette.leaves(form)

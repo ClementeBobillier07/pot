@@ -55,7 +55,7 @@ struct MainView: View {
                 Text(message).font(.callout).foregroundStyle(.secondary).padding(16).accessibilityAddTraits(.updatesFrequently)
             }
         }
-        .frame(minWidth: 420, idealWidth: 430, maxWidth: .infinity, minHeight: 650, maxHeight: .infinity)
+        .frame(minWidth: 420, idealWidth: 430, maxWidth: .infinity, minHeight: 700, maxHeight: .infinity)
         .background(Color(nsColor: .windowBackgroundColor))
         .tint(forest)
         .preferredColorScheme(model.colorScheme)
@@ -92,88 +92,89 @@ struct MainView: View {
         let headlineTokens = selected?.tokens ?? summary?.tokens
         let headlineUSD = selected.map { $0.estimatedUSD } ?? summary?.estimatedUSD
         let headlinePartial = selected?.partial ?? summary?.partial ?? false
-        return ScrollView {
-            VStack(spacing: 5) {
-                HStack(spacing: 10) {
-                    navButton(-1)
-                    VStack(spacing: 3) {
-                        Text(account.profile.provider.displayName).font(.system(size: 24, weight: .medium, design: .serif))
-                        Text(account.profile.email ?? account.profile.alias).font(.callout).foregroundStyle(.secondary).lineLimit(1)
-                    }.frame(minWidth: 220)
-                    navButton(1)
+        // Fixed composition: the plant has a stage with room to grow upward (the whole canvas,
+        // bottom-aligned on the stats), and the statistics stay anchored at the bottom, so nothing
+        // moves as the plant grows from seedling to full.
+        return VStack(spacing: 0) {
+            HStack(spacing: 10) {
+                navButton(-1)
+                VStack(spacing: 3) {
+                    Text(account.profile.provider.displayName).font(.system(size: 24, weight: .medium, design: .serif))
+                    Text(account.profile.email ?? account.profile.alias).font(.callout).foregroundStyle(.secondary).lineLimit(1)
+                }.frame(minWidth: 220)
+                navButton(1)
+            }
+            if model.snapshots.count > 1 {
+                // Page dots: where this plant sits in the garden.
+                HStack(spacing: 7) {
+                    ForEach(model.snapshots, id: \.profile.id) { snap in
+                        Circle().fill(snap.profile.id == account.profile.id ? forest : Color.secondary.opacity(0.3))
+                            .frame(width: 6, height: 6)
+                    }
                 }
-                PlantView(plant: account.plant, active: model.mainVisible && isActive(account), idle: model.mainVisible, crop: true)
-                    .frame(width: 240, height: PlantLayout.cropHeight(account.plant, minimum: 170) * 0.75)
-                    .animation(reduceMotion ? nil : .easeInOut(duration: 0.4), value: PlantLayout.cropHeight(account.plant, minimum: 170))
-                    .id(account.profile.id)
-                    .transition(reduceMotion ? .opacity : PlantSwitch.transition(direction: model.navigationDirection))
-                    .padding(.top, -6).padding(.bottom, 4)
+                .padding(.top, 10)
+                .accessibilityElement().accessibilityLabel("Plant \((model.snapshots.firstIndex { $0.profile.id == account.profile.id } ?? 0) + 1) of \(model.snapshots.count)")
+            }
+            PlantView(plant: account.plant, active: model.mainVisible && isActive(account), idle: model.mainVisible)
+                .frame(maxWidth: .infinity, minHeight: 220, maxHeight: .infinity)
+                .id(account.profile.id)
+                .transition(reduceMotion ? .opacity : PlantSwitch.transition(direction: model.navigationDirection))
+                .padding(.top, 8)
+            Text(PlantStatus.describe(account.plant, lastActivity: account.lastActivity))
+                .font(.caption).foregroundStyle(.secondary).padding(.top, 6)
+
+            VStack(spacing: 4) {
                 Picker("Period", selection: $period) {
                     ForEach(UsagePeriod.allCases) { Text($0.title).tag($0) }
                 }.pickerStyle(.segmented).labelsHidden().frame(width: 290).padding(.bottom, 6)
                 .onChange(of: period) { _, _ in selectedDate = nil }
                 Text(headlineTokens.map { $0.formatted() } ?? "…")
-                    .font(.system(size: 32, weight: .light, design: .rounded)).monospacedDigit()
+                    .font(.system(size: 30, weight: .light, design: .rounded)).monospacedDigit()
                     .contentTransition(.numericText())
                 Text(selected.map { "tokens · " + $0.date.formatted(.dateTime.month(.abbreviated).day()) } ?? periodCaption(account))
                     .font(.callout).foregroundStyle(.secondary)
                 HStack(spacing: 5) {
                     Text(headlineTokens == nil ? "…" : money(headlineUSD ?? nil))
                     Text("Estimated API value\(headlinePartial ? " · partial" : "")")
-                }.font(.caption).foregroundStyle(.secondary).padding(.top, 3)
+                }.font(.caption).foregroundStyle(.secondary).padding(.top, 2)
                 .help("Reference API prices for the same tokens. Not your bill or subscription usage.")
-                VStack(spacing: 12) {
-                    HStack {
-                        Text("Last 7 days").font(.callout)
-                        Spacer()
-                        Picker("Chart unit", selection: $dollars) {
-                            Text("Tokens").tag(false); Text("USD").tag(true)
-                        }.pickerStyle(.segmented).labelsHidden().frame(width: 132)
-                    }
-                    Chart(account.days, id: \.date) { day in
-                        BarMark(x: .value("Day", day.date, unit: .day), y: .value(dollars ? "Estimated USD" : "Tokens", chartValue(day)), width: .ratio(0.55))
-                            .foregroundStyle(selectedDate.map { Calendar.current.isDate($0, inSameDayAs: day.date) } == true ? forest : forest.opacity(0.45))
-                            .cornerRadius(3)
-                            .accessibilityLabel(day.date.formatted(.dateTime.weekday(.wide).month().day()))
-                            .accessibilityValue(dollars ? money(day.estimatedUSD) + (day.partial ? ", partial estimate" : "") : "\(day.tokens.formatted()) tokens")
-                    }
-                    .chartXSelection(value: $selectedDate)
-                    .chartYAxis(.hidden)
-                    .chartXAxis { AxisMarks(values: .stride(by: .day)) { value in AxisValueLabel(format: .dateTime.weekday(.narrow), centered: true) } }
-                    .chartYScale(domain: 0...max(1, (account.days.map(chartValue).max() ?? 1) * 1.1))
-                    .frame(height: 90)
-                    HStack {
-                        Text("Week total")
-                        Spacer()
-                        Text(dollars ? weeklyMoney(account.days) : "\(weeklyTokens(account.days).formatted()) tokens")
-                    }.font(.caption).foregroundStyle(.secondary)
-                    if dollars && account.days.contains(where: { $0.partial || $0.estimatedUSD == nil }) {
-                        Text("Some models or billing categories have no verified rate. Empty bars may have unavailable values.")
-                            .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
-                    }
-                }.padding(.horizontal, 32).padding(.top, 22)
-                if model.snapshots.count > 1 {
-                    // Page dots: where this plant sits in the garden.
-                    HStack(spacing: 7) {
-                        ForEach(model.snapshots, id: \.profile.id) { snap in
-                            Circle().fill(snap.profile.id == account.profile.id ? forest : Color.secondary.opacity(0.3))
-                                .frame(width: 6, height: 6)
-                        }
-                    }
-                    .padding(.top, 25).padding(.bottom, 12)
-                    .accessibilityElement().accessibilityLabel("Plant \((model.snapshots.firstIndex { $0.profile.id == account.profile.id } ?? 0) + 1) of \(model.snapshots.count)")
-                } else {
-                    Spacer().frame(height: 20)
+            }.padding(.top, 18)
+            VStack(spacing: 10) {
+                HStack {
+                    Text("Last 7 days").font(.callout)
+                    Spacer()
+                    Picker("Chart unit", selection: $dollars) {
+                        Text("Tokens").tag(false); Text("USD").tag(true)
+                    }.pickerStyle(.segmented).labelsHidden().frame(width: 132)
                 }
-                Text(PlantStatus.describe(account.plant, lastActivity: account.lastActivity))
-                    .font(.caption).foregroundStyle(.secondary).padding(.bottom, 2)
-                Text(account.coverage).font(.caption).foregroundStyle(.secondary)
-                    .multilineTextAlignment(.center).padding(.horizontal, 30)
-                Text(coverageLine(account)).font(.caption).foregroundStyle(.secondary)
-                    .multilineTextAlignment(.center).padding(.horizontal, 30)
-                Text("Reference API rates · \(account.priceReference)")
-                    .font(.caption).foregroundStyle(.secondary).padding(.bottom, 20)
+                Chart(account.days, id: \.date) { day in
+                    BarMark(x: .value("Day", day.date, unit: .day), y: .value(dollars ? "Estimated USD" : "Tokens", chartValue(day)), width: .ratio(0.55))
+                        .foregroundStyle(selectedDate.map { Calendar.current.isDate($0, inSameDayAs: day.date) } == true ? forest : forest.opacity(0.45))
+                        .cornerRadius(3)
+                        .accessibilityLabel(day.date.formatted(.dateTime.weekday(.wide).month().day()))
+                        .accessibilityValue(dollars ? money(day.estimatedUSD) + (day.partial ? ", partial estimate" : "") : "\(day.tokens.formatted()) tokens")
+                }
+                .chartXSelection(value: $selectedDate)
+                .chartYAxis(.hidden)
+                .chartXAxis { AxisMarks(values: .stride(by: .day)) { value in AxisValueLabel(format: .dateTime.weekday(.narrow), centered: true) } }
+                .chartYScale(domain: 0...max(1, (account.days.map(chartValue).max() ?? 1) * 1.1))
+                .frame(height: 76)
+                HStack {
+                    Text("Week total")
+                    Spacer()
+                    Text(dollars ? weeklyMoney(account.days) : "\(weeklyTokens(account.days).formatted()) tokens")
+                }.font(.caption).foregroundStyle(.secondary)
+                if dollars && account.days.contains(where: { $0.partial || $0.estimatedUSD == nil }) {
+                    Text("Some models or billing categories have no verified rate. Empty bars may have unavailable values.")
+                        .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+                }
+            }.padding(.horizontal, 32).padding(.top, 18)
+            VStack(spacing: 2) {
+                Text(account.coverage)
+                Text("\(coverageLine(account)) · rates \(account.priceReference)")
             }
+            .font(.caption2).foregroundStyle(.tertiary).multilineTextAlignment(.center)
+            .padding(.horizontal, 24).padding(.top, 14).padding(.bottom, 16)
         }
     }
     private func periodCaption(_ account: AccountSnapshot) -> String {

@@ -48,7 +48,8 @@ final class PotDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             button.action = #selector(statusClicked(_:))
             button.sendAction(on: [.leftMouseUp, .rightMouseUp])
         }
-        window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 430, height: 720),
+        let available = NSScreen.main?.visibleFrame.height ?? 900
+        window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 430, height: min(820, max(720, available - 60))),
                           styleMask: [.titled, .closable, .miniaturizable], backing: .buffered, defer: false)
         window.title = "Pot"
         window.isReleasedWhenClosed = false
