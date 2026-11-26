@@ -3,7 +3,7 @@ import AppKit
 import SwiftUI
 import PotCore
 
-/// Plain RGB so the renderer can blend palette colors deterministically (age, health, wilting).
+/// Plain RGB so the renderer can blend palette colours deterministically (health, wilting).
 private struct RGB {
     var r: Double, g: Double, b: Double
     init(_ hex: UInt32) { r = Double((hex >> 16) & 255) / 255; g = Double((hex >> 8) & 255) / 255; b = Double(hex & 255) / 255 }
@@ -12,79 +12,69 @@ private struct RGB {
         let k = min(1, max(0, t))
         return RGB(r: r + (other.r - r) * k, g: g + (other.g - g) * k, b: b + (other.b - b) * k)
     }
+    func lighter(_ t: Double) -> RGB { mixed(RGB(0xFFFFFF), t) }
+    func darker(_ t: Double) -> RGB { mixed(RGB(0x000000), t) }
     var color: Color { Color(red: r, green: g, blue: b) }
 }
 
-/// Visual language shared with the landing illustrations (landing/components/Plant.tsx):
-/// Codex grows rounded eucalyptus leaves in a sage pot; Claude Code grows slender pointed
-/// leaves in a terracotta pot. Flowers are flat ellipse petals around a golden center.
-private struct PlantPalette {
-    let leaves: [RGB]
-    let flowers: [RGB]
-    let stem: RGB
-    let petals: Int
-    static let codex = PlantPalette(leaves: [RGB(0x477C60), RGB(0x63976F), RGB(0x9DB68D), RGB(0x568A68)],
-                                    flowers: [RGB(0xE4C761), RGB(0xF2E9BA), RGB(0xDFB5CD), RGB(0xB7A1CE)],
-                                    stem: RGB(0x55815B), petals: 5)
-    static let claude = PlantPalette(leaves: [RGB(0x537850), RGB(0x6E915C), RGB(0x9CAB76), RGB(0x647F4E)],
-                                     flowers: [RGB(0xE79C77), RGB(0xDB8069), RGB(0xF1D69B), RGB(0xAE94C0)],
-                                     stem: RGB(0x73864C), petals: 6)
-    static let center = RGB(0xC49C49)
-    static let tired = RGB(0xB8A85E)      // low turgor, under-watered foliage
-    static let autumn = RGB(0xC2B26C)     // a leaf near the end of its natural life
-    static let dried = RGB(0xA88D72)      // wilting petals
+/// Colours of the owner's botanical references (Pot — growth & recovery, variations 01–03, copihue).
+private enum Palette {
+    static func leaves(_ form: PlantForm) -> [RGB] {
+        switch (form.provider, form.species) {
+        case (.codex, .surprise): return [RGB(0x4F8E62), RGB(0x67A275), RGB(0x3F7A53), RGB(0x7DB486)]
+        case (.codex, _): return [RGB(0x5A9C55), RGB(0x76B25F), RGB(0x4A8A49), RGB(0x8CC26E)]
+        case (.claude, .copihue): return [RGB(0x4E9443), RGB(0x6AAE52), RGB(0x3F803A), RGB(0x86C064)]
+        case (.claude, _): return [RGB(0x6E9E4A), RGB(0x88B556), RGB(0x5B8A3D), RGB(0x9EC567)]
+        }
+    }
+    static func flowers(_ form: PlantForm) -> [(petal: RGB, center: RGB)] {
+        switch (form.provider, form.species) {
+        case (.codex, .classic): return [(RGB(0xFBF8EE), RGB(0xF0C534)), (RGB(0xF4B8C8), RGB(0xE7A03A)), (RGB(0xF7D543), RGB(0xE59A2B)), (RGB(0xC6A8E2), RGB(0xF0C534))]
+        case (.codex, .blossom): return [(RGB(0xF1A9B8), RGB(0xD9788F)), (RGB(0xFFFFFF), RGB(0xF2C230)), (RGB(0xB996DE), RGB(0xF4D24B)), (RGB(0xF6CE48), RGB(0xE09A2A))]
+        case (.codex, .surprise): return [(RGB(0xF6ECD9), RGB(0xE9C36A)), (RGB(0xF4C3B8), RGB(0xE9A06E)), (RGB(0x2E3A78), RGB(0xC9D85A)), (RGB(0x7C2442), RGB(0x4FC2B9)), (RGB(0xF3D44B), RGB(0xE6A52E))]
+        case (.claude, .classic): return [(RGB(0xF27A44), RGB(0xF6C14C)), (RGB(0xF7C7A2), RGB(0xF2A65A)), (RGB(0xFBE8C8), RGB(0xF2B54E)), (RGB(0xB9A0DC), RGB(0xF4CC52))]
+        case (.claude, .blossom): return [(RGB(0xF17B4E), RGB(0xE8483A)), (RGB(0xA98BDA), RGB(0xF2D04C)), (RGB(0xF8F2E4), RGB(0xE9D9B0))]
+        case (.claude, .surprise): return [(RGB(0xF5823E), RGB(0xD6452E)), (RGB(0xEFE24A), RGB(0xD8378C)), (RGB(0x5B1F3B), RGB(0x46C4C0)), (RGB(0xFAF0DA), RGB(0xF1C454))]
+        case (.codex, .copihue): return [(RGB(0xF8F2EA), RGB(0xE05A61))]
+        case (.claude, .copihue): return [(RGB(0xE53A37), RGB(0xB3262C))]
+        }
+    }
+    static let stem = RGB(0x5E8F45)
+    static let yellow = RGB(0xD9C259)
+    static let brown = RGB(0xA77B47)
+    static let darkBrown = RGB(0x7C5733)
+    static let stake = RGB(0xD49A5B)
+    static func dryTone(_ base: RGB, _ dry: Double) -> RGB {
+        dry < 0.5 ? base.mixed(yellow, dry * 2) : yellow.mixed(brown, (dry - 0.5) * 2)
+    }
 }
 
-/// Mature plants can reach past the 320×400 canvas. The frame zooms out gently around the pot,
-/// never below 72 %, so detail stays visible (master doc §8 "Renovación sin saturación").
-/// FloatingPlant hit testing can apply the same scale around (160, 392).
+/// The form is designed to fit the 320×400 canvas, so no zoom is needed. FloatingPlant uses the
+/// same form for its close button, hover zone and click-through hit testing.
 enum PlantLayout {
-    static let anchor = CGPoint(x: 160, y: 392)
-    static func fitScale(_ plant: PlantState) -> Double {
-        var minX = 40.0, maxX = 280.0, minY = 30.0
-        for organ in plant.organs {
-            let end = organ.endpoint
-            let reach: Double
-            switch organ.kind {
-            case .stem, .branch: reach = 4
-            case .leaf: reach = 9 + organ.size * 5.5
-            case .flower: reach = 18 + organ.size * 1.9
-            }
-            for p in [(organ.x, organ.y), (end.x, end.y)] {
-                minX = min(minX, p.0 * 320 - reach); maxX = max(maxX, p.0 * 320 + reach); minY = min(minY, p.1 * 400 - reach)
-            }
-        }
-        let horizontal = min((anchor.x - 4) / max(1, anchor.x - minX), (316 - anchor.x) / max(1, maxX - anchor.x))
-        let vertical = (anchor.y - 4) / max(1, anchor.y - minY)
-        return max(0.72, min(1, horizontal, vertical))
-    }
-
-    /// Visible extent of pot and organs in the 320×400 canvas, after the fit zoom.
-    /// The floating panel uses it to place its close button and its hover zone.
+    static let anchor = CGPoint(x: 160, y: 386)
+    static func fitScale(_ plant: PlantState) -> Double { 1 }
     static func visibleBounds(_ plant: PlantState) -> CGRect {
-        var minX = 88.0, maxX = 232.0, minY = 318.0, maxY = 396.0 // pot
-        for organ in plant.organs {
-            let end = organ.endpoint
-            let reach: Double
-            switch organ.kind {
-            case .stem, .branch: reach = 4
-            case .leaf: reach = 9 + organ.size * 5.5
-            case .flower: reach = 18 + organ.size * 1.9
-            }
-            for p in [(organ.x, organ.y), (end.x, end.y)] {
-                minX = min(minX, p.0 * 320 - reach); maxX = max(maxX, p.0 * 320 + reach); minY = min(minY, p.1 * 400 - reach)
-            }
+        let b = PlantFormBuilder.build(plant).bounds
+        let minX = max(0, b.minX), minY = max(0, b.minY)
+        return CGRect(x: minX, y: minY, width: min(320, b.maxX) - minX, height: min(400, b.maxY) - minY)
+    }
+    /// Whether a canvas point touches the pot or the plant (for click-through hit testing).
+    static func contains(_ p: CGPoint, plant: PlantState) -> Bool {
+        if CGRect(x: 100, y: 322, width: 120, height: 68).contains(p) { return true }
+        let form = PlantFormBuilder.build(plant)
+        func near(_ a: PlantForm.Point, _ b: PlantForm.Point, _ r: Double) -> Bool {
+            let dx = b.x - a.x, dy = b.y - a.y, len = max(1, dx * dx + dy * dy)
+            let t = max(0, min(1, ((p.x - a.x) * dx + (p.y - a.y) * dy) / len))
+            return hypot(p.x - a.x - t * dx, p.y - a.y - t * dy) < r
         }
-        let fit = fitScale(plant)
-        func t(_ x: Double, _ y: Double) -> CGPoint { CGPoint(x: anchor.x + (x - anchor.x) * fit, y: anchor.y + (y - anchor.y) * fit) }
-        let a = t(minX, minY), b = t(maxX, maxY)
-        return CGRect(x: max(0, a.x), y: max(0, a.y), width: min(320, b.x) - max(0, a.x), height: min(400, b.y) - max(0, a.y))
+        for s in form.stems { for (a, b) in zip(s.points, s.points.dropFirst()) where near(a, b, 7) { return true } }
+        for l in form.leaves where near(l.base, l.tip, max(6, l.width * 0.55)) { return true }
+        for f in form.flowers where hypot(p.x - f.center.x, p.y - f.center.y) < f.size + 4 { return true }
+        return false
     }
 }
 
-/// Turns a stream of scroll events into at most one plant switch per trackpad gesture.
-/// It must outlive the views that receive the events: switching plants recreates the plant
-/// view (and its event surface) mid-gesture, and a fresh per-view state would switch again.
 @MainActor
 final class SwipeGate {
     static let floating = SwipeGate()
@@ -134,32 +124,21 @@ struct PlantView: View {
     var idle = false
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var dancing = false
-    @State private var oldSizes: [String: Double] = [:]
-    @State private var oldMaturation: [String: Double] = [:]
-    @State private var blend = 1.0
+
+    /// Built once per plant update, not per animation frame.
+    private var form: PlantForm { PlantFormBuilder.build(plant) }
 
     var body: some View {
-        TimelineView(.animation(minimumInterval: dancing ? 1.0 / 24 : 1.0 / 15, paused: !(dancing || idle) || reduceMotion)) { timeline in
-            PlantDrawing(plant: plant, oldSizes: oldSizes, oldMaturation: oldMaturation, blend: blend,
-                         sway: reduceMotion ? 0 : sway(at: timeline.date.timeIntervalSinceReferenceDate))
+        let form = self.form
+        return TimelineView(.animation(minimumInterval: dancing ? 1.0 / 24 : 1.0 / 15, paused: !(dancing || idle) || reduceMotion)) { timeline in
+            FormDrawing(form: form, sway: reduceMotion ? 0 : sway(at: timeline.date.timeIntervalSinceReferenceDate))
         }
         .onAppear { if active { pulse() } }
         .onChange(of: active) { _, value in if value { pulse() } else { dancing = false } }
         .onChange(of: plant.lastActivity) { _, _ in if active { pulse() } }
         .onDisappear { dancing = false }
-        .onChange(of: plant.organs) { before, after in
-            let previous = Dictionary(uniqueKeysWithValues: before.map { ($0.id, $0) })
-            guard after.contains(where: { organ in
-                guard let old = previous[organ.id] else { return true }
-                return abs(old.size - organ.size) > 0.00001 || abs(old.maturation - organ.maturation) > 0.00001
-            }) else { return }
-            oldSizes = Dictionary(uniqueKeysWithValues: before.map { ($0.id, $0.size) })
-            oldMaturation = Dictionary(uniqueKeysWithValues: before.map { ($0.id, $0.maturation) })
-            blend = reduceMotion ? 1 : 0
-            withAnimation(.easeInOut(duration: 1.6)) { blend = 1 }
-        }
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel("\(plant.provider.displayName) plant")
+        .accessibilityLabel("\(plant.provider.displayName) plant, \(PlantSpecies.of(seed: plant.seed).title(for: plant.provider))")
         .accessibilityValue(plant.health > 0.8 ? "Growing peacefully" : plant.health > 0.45 ? "A little thirsty" : "Wilted. A few days of work will bring it back.")
     }
     /// Activity dance, or a slow breeze unique to each plant (phase and tempo from its seed).
@@ -180,194 +159,239 @@ struct PlantView: View {
     }
 }
 
-private struct PlantDrawing: View, Animatable {
-    let plant: PlantState
-    let oldSizes: [String: Double]
-    let oldMaturation: [String: Double]
-    var blend: Double
+
+private struct FormDrawing: View {
+    let form: PlantForm
     var sway: Double
-    var animatableData: Double {
-        get { blend }
-        set { blend = newValue }
-    }
+
     var body: some View {
         Canvas { context, size in
             let scale = min(size.width / 320, size.height / 400)
             context.translateBy(x: (size.width - 320 * scale) / 2, y: (size.height - 400 * scale) / 2)
             context.scaleBy(x: scale, y: scale)
-            let codex = plant.provider == .codex
-            let palette = codex ? PlantPalette.codex : PlantPalette.claude
-            let health = min(1, max(0.2, plant.health))
-            let fit = PlantLayout.fitScale(plant)
+            let leafColours = Palette.leaves(form)
+            let flowerColours = Palette.flowers(form)
+            let w = form.wilt
 
-            // Soft ground shadow stays anchored to the pot.
-            context.fill(Path(ellipseIn: CGRect(x: 84, y: 384, width: 152, height: 11)),
-                         with: .color(Color(red: 0.13, green: 0.23, blue: 0.17).opacity(0.09)))
+            // Breeze: higher parts move more; the pot never moves.
+            func pt(_ p: PlantForm.Point) -> CGPoint { CGPoint(x: p.x + sway * max(0, 332 - p.y) * 0.9, y: p.y) }
 
-            var layer = context
-            layer.translateBy(x: PlantLayout.anchor.x, y: PlantLayout.anchor.y)
-            layer.scaleBy(x: fit, y: fit)
-            layer.translateBy(x: -PlantLayout.anchor.x, y: -PlantLayout.anchor.y)
+            // Soft ground shadow.
+            context.fill(Path(ellipseIn: CGRect(x: 96, y: 382, width: 128, height: 10)),
+                         with: .color(Color(red: 0.13, green: 0.23, blue: 0.17).opacity(0.10)))
 
-            func point(_ x: Double, _ y: Double) -> CGPoint {
-                CGPoint(x: x * 320 + sway * (0.80 - y) * 320, y: y * 400)
+            // Stake (copihue), then stems and branches.
+            for stem in form.stems where stem.kind == .stake {
+                guard let a = stem.points.first, let b = stem.points.last else { continue }
+                var path = Path(); path.move(to: CGPoint(x: a.x, y: a.y)); path.addLine(to: CGPoint(x: b.x, y: b.y))
+                context.stroke(path, with: .color(Palette.stake.color), style: StrokeStyle(lineWidth: stem.width, lineCap: .round))
+                var light = Path(); light.move(to: CGPoint(x: a.x - 1, y: a.y)); light.addLine(to: CGPoint(x: b.x - 1, y: b.y + 4))
+                context.stroke(light, with: .color(Palette.stake.lighter(0.35).color), style: StrokeStyle(lineWidth: 1.2, lineCap: .round))
             }
-            func currentSize(_ organ: PlantOrgan) -> Double {
-                let old = oldSizes[organ.id] ?? 1
-                return old + (organ.size - old) * blend
-            }
-            func currentMaturity(_ organ: PlantOrgan) -> Double {
-                let old = oldMaturation[organ.id] ?? 0
-                return old + (organ.maturation - old) * blend
-            }
-
-            // Stems and branches: gently arching strokes, like the landing's quadratic shoots.
-            let stemColor = palette.stem.mixed(PlantPalette.tired, (1 - health) * 0.7).color
-            for organ in plant.organs where organ.kind == .stem || organ.kind == .branch {
-                let start = point(organ.x, organ.y)
-                let end = point(organ.endpoint.x, organ.endpoint.y)
+            let stemTone = (form.recovering ? Palette.stem : Palette.dryTone(Palette.stem, max(0, w - 0.15) * 1.1)).color
+            for stem in form.stems where stem.kind != .stake {
+                guard stem.points.count > 1 else { continue }
                 var path = Path()
-                path.move(to: start)
-                if organ.kind == .stem {
-                    let bend = [-0.06, 0.04, 0.08][abs(organ.shape) % 3] * (start.y - end.y)
-                    path.addQuadCurve(to: end, control: CGPoint(x: (start.x + end.x) / 2 + bend, y: (start.y + end.y) / 2))
-                } else {
-                    // Rise first, then lean outward.
-                    path.addQuadCurve(to: end, control: CGPoint(x: start.x + (end.x - start.x) * 0.2, y: start.y + (end.y - start.y) * 0.85))
+                path.move(to: pt(stem.points[0]))
+                for i in 1..<stem.points.count {
+                    let a = pt(stem.points[i - 1]), b = pt(stem.points[i])
+                    path.addQuadCurve(to: CGPoint(x: (a.x + b.x) / 2, y: (a.y + b.y) / 2), control: a)
                 }
-                layer.stroke(path, with: .color(stemColor), style: StrokeStyle(lineWidth: organ.kind == .stem ? 4.4 : 3.3, lineCap: .round))
+                path.addLine(to: pt(stem.points[stem.points.count - 1]))
+                context.stroke(path, with: .color(stemTone), style: StrokeStyle(lineWidth: stem.width, lineCap: .round, lineJoin: .round))
             }
 
-            func leafPath(length: Double, variation: Double) -> Path {
-                // a = along the leaf (drawn upward, -y), c = across.
-                func p(_ a: Double, _ c: Double) -> CGPoint { CGPoint(x: c * length * variation, y: -a * length) }
+            // Leaves: two-tone body with a soft midrib, like the references.
+            for leaf in form.leaves {
+                var layer = context
+                let base = pt(leaf.base)
+                layer.translateBy(x: base.x, y: base.y)
+                layer.rotate(by: .radians(leaf.angle))
+                let tone = Palette.dryTone(leafColours[abs(leaf.tone) % leafColours.count], leaf.dry)
+                let (body, half) = leafPaths(leaf)
+                layer.fill(body, with: .color(tone.color))
+                layer.fill(half, with: .color(tone.lighter(0.16).color))
+                if leaf.length > 12 && leaf.shape != .cotyledon {
+                    var rib = Path(); rib.move(to: CGPoint(x: 0, y: -leaf.length * 0.08)); rib.addLine(to: CGPoint(x: 0, y: -leaf.length * 0.82))
+                    layer.stroke(rib, with: .color(tone.darker(0.18).color.opacity(0.55)), style: StrokeStyle(lineWidth: 0.9, lineCap: .round))
+                }
+            }
+
+            // Flowers and buds on top.
+            for flower in form.flowers {
+                let colours = flowerColours[abs(flower.color) % flowerColours.count]
+                var layer = context
+                let c = pt(flower.center)
+                layer.translateBy(x: c.x, y: c.y)
+                // Hanging flowers swing further down as they wilt.
+                layer.rotate(by: .radians(flower.angle + (flower.hanging ? (flower.angle >= 0 ? 0.6 : -0.6) * flower.fade : 0)))
+                let petal = colours.petal.mixed(RGB(0xC9A27E), flower.fade * 0.75)
+                drawFlower(flower, in: layer, petal: petal, center: colours.center.mixed(Palette.brown, flower.fade * 0.6))
+            }
+
+            drawPot(context)
+
+            // Fallen leaves resting on the ground around the pot.
+            for i in 0..<form.fallenLeaves {
+                var layer = context
+                let x = [92.0, 228, 104, 216, 84, 236, 120, 200, 96][i % 9]
+                layer.translateBy(x: x, y: 387 - Double(i % 2) * 1.5)
+                layer.rotate(by: .radians(i % 2 == 0 ? 1.35 : -1.4))
                 var leaf = Path()
                 leaf.move(to: .zero)
-                if codex {
-                    leaf.addCurve(to: p(1, 0), control1: p(0.1, -0.62), control2: p(0.92, -0.58))
-                    leaf.addCurve(to: .zero, control1: p(0.82, 0.52), control2: p(0.15, 0.55))
-                } else {
-                    leaf.addQuadCurve(to: p(1, 0), control: p(0.3, -0.5))
-                    leaf.addQuadCurve(to: .zero, control: p(0.32, 0.32))
-                }
-                return leaf
-            }
-
-            // Growing tips: a terminal shoot without a flower ends in a small leaflet pair
-            // instead of a bare stick. Purely decorative; derived from the graph, not stored.
-            let parents = Set(plant.organs.filter { $0.kind != .leaf }.compactMap(\.parentID))
-            for organ in plant.organs where (organ.kind == .stem || organ.kind == .branch) && !parents.contains(organ.id) && organ.maturation > 0.2 {
-                let start = point(organ.x, organ.y)
-                let end = point(organ.endpoint.x, organ.endpoint.y)
-                let heading = atan2(end.x - start.x, -(end.y - start.y))
-                let length = 8 + 9 * min(1, organ.maturation)
-                let tone = palette.leaves[(abs(organ.colorIndex) + 2) % palette.leaves.count].mixed(PlantPalette.tired, (1 - health) * 0.9)
-                for spread in [-0.45, 0.4] {
-                    var tip = layer
-                    tip.translateBy(x: end.x, y: end.y)
-                    tip.rotate(by: .radians(heading + spread))
-                    tip.fill(leafPath(length: length, variation: 0.9), with: .color(tone.color))
-                }
-            }
-
-            // Leaves: engine order is birth order, so new growth sits on top of old.
-            for organ in plant.organs where organ.kind == .leaf {
-                var leafLayer = layer
-                let anchor = point(organ.x, organ.y)
-                leafLayer.translateBy(x: anchor.x, y: anchor.y)
-                // Low health lowers turgor: leaves droop away from vertical.
-                let side: Double = organ.orientation >= 0 ? 1 : -1
-                leafLayer.rotate(by: .radians(organ.orientation + side * (1 - health) * 0.95))
-                let length = 9 + currentSize(organ) * 5.5
-                let variation = [1.0, 0.9, 1.1][abs(organ.shape) % 3]
-                func p(_ a: Double, _ c: Double) -> CGPoint { CGPoint(x: c * length * variation, y: -a * length) }
-                let days = organ.ageHours / 24
-                let ageing = max(0, min(1, (days - 24) / 11)) * 0.45
-                let tone = palette.leaves[abs(organ.colorIndex) % palette.leaves.count]
-                    .mixed(PlantPalette.autumn, ageing)
-                    .mixed(PlantPalette.tired, (1 - health) * 0.9)
-                leafLayer.fill(leafPath(length: length, variation: variation), with: .color(tone.color))
-                if length > 26 {
-                    // A faint midrib on grown leaves; invisible on seedlings.
-                    var rib = Path()
-                    rib.move(to: p(0.12, 0))
-                    rib.addQuadCurve(to: p(0.78, codex ? -0.04 : 0.02), control: p(0.45, codex ? -0.06 : 0.04))
-                    leafLayer.stroke(rib, with: .color(.white.opacity(0.16)), style: StrokeStyle(lineWidth: 1.2, lineCap: .round))
-                }
-            }
-
-            // Flowers on top: green knot → bud → opening cup → full bloom → wilting.
-            for organ in plant.organs where organ.kind == .flower {
-                let m = currentMaturity(organ)
-                guard m < 1 else { continue }
-                var flower = layer
-                let anchor = point(organ.x, organ.y)
-                flower.translateBy(x: anchor.x, y: anchor.y)
-                let wilt = max(0, min(1, (m - 0.92) / 0.08))
-                let side: Double = organ.orientation >= 0 ? 1 : -1
-                flower.rotate(by: .radians(organ.orientation + side * wilt * 0.9 + side * (1 - health) * 0.25))
-                let base = palette.flowers[abs(organ.colorIndex) % palette.flowers.count]
-                let petalColor = base.mixed(PlantPalette.dried, wilt * 0.7 + (1 - health) * 0.25)
-                let s = currentSize(organ)
-                if m < 0.10 {
-                    let r = 3.5 + m * 25
-                    flower.fill(Path(ellipseIn: CGRect(x: -r * 0.7, y: -r * 1.6, width: r * 1.4, height: r * 1.8)), with: .color(palette.stem.color))
-                } else if m < 0.35 {
-                    // Closed bud: color shows at the tip as it swells.
-                    let t = (m - 0.10) / 0.25
-                    let w = 7 + t * 5, h = 11 + t * 9
-                    flower.fill(Path(ellipseIn: CGRect(x: -w / 2, y: -h, width: w, height: h)),
-                                with: .color(petalColor.mixed(palette.stem, 0.55 - t * 0.5).color))
-                    var calyx = Path()
-                    calyx.move(to: CGPoint(x: -w * 0.55, y: -h * 0.18))
-                    calyx.addQuadCurve(to: CGPoint(x: w * 0.55, y: -h * 0.18), control: CGPoint(x: 0, y: h * 0.25))
-                    calyx.addQuadCurve(to: CGPoint(x: -w * 0.55, y: -h * 0.18), control: CGPoint(x: 0, y: -h * 0.55))
-                    flower.fill(calyx, with: .color(palette.stem.color))
-                } else {
-                    let open = min(1, (m - 0.35) / 0.25)
-                    let eased = open * open * (3 - 2 * open)
-                    let petals = palette.petals + (abs(organ.shape) % 3 == 2 ? 1 : 0)
-                    let full = 22 + s * 1.4
-                    let length = full * (0.72 + 0.28 * eased) * (1 - wilt * 0.3)
-                    let width = length * 0.47
-                    // Opening petals fan out from a cup; open flowers face the viewer.
-                    let spread = 0.32 + 0.68 * eased
-                    for index in 0..<petals {
-                        if wilt > 0.45 && index % 2 == 1 { continue } // petals begin to fall
-                        var petal = flower
-                        let angle = (Double(index) - Double(petals - 1) / 2) * (2 * .pi / Double(petals)) * spread
-                        petal.rotate(by: .radians(angle))
-                        let rect = CGRect(x: -width / 2, y: -length * 0.86, width: width, height: length)
-                        petal.fill(Path(ellipseIn: rect), with: .color(petalColor.color.opacity(1 - wilt * 0.35)))
-                    }
-                    let r = (6.5 + s * 0.25) * (0.55 + 0.45 * eased)
-                    flower.fill(Path(ellipseIn: CGRect(x: -r, y: -r, width: r * 2, height: r * 2)),
-                                with: .color(PlantPalette.center.mixed(PlantPalette.dried, wilt * 0.5).color))
-                }
-            }
-
-            // The provider identity belongs to the pot, even for a newly born seedling.
-            if codex {
-                var body = Path()
-                body.move(to: CGPoint(x: 94, y: 318)); body.addLine(to: CGPoint(x: 226, y: 318)); body.addLine(to: CGPoint(x: 226, y: 371))
-                body.addQuadCurve(to: CGPoint(x: 207, y: 387), control: CGPoint(x: 226, y: 387)); body.addLine(to: CGPoint(x: 113, y: 387))
-                body.addQuadCurve(to: CGPoint(x: 94, y: 368), control: CGPoint(x: 94, y: 387)); body.closeSubpath()
-                context.fill(body, with: .color(RGB(0x74998D).color))
-                context.fill(Path(roundedRect: CGRect(x: 92, y: 311, width: 136, height: 17), cornerRadius: 6), with: .color(RGB(0x91AFA3).color))
-                var shine = Path(); shine.move(to: CGPoint(x: 106, y: 335)); shine.addLine(to: CGPoint(x: 106, y: 366))
-                shine.addQuadCurve(to: CGPoint(x: 116, y: 375), control: CGPoint(x: 106, y: 375))
-                context.stroke(shine, with: .color(RGB(0xA8C0B4).color.opacity(0.7)), style: StrokeStyle(lineWidth: 6, lineCap: .round))
-            } else {
-                var pot = Path()
-                pot.move(to: CGPoint(x: 92, y: 322)); pot.addLine(to: CGPoint(x: 228, y: 322)); pot.addLine(to: CGPoint(x: 215, y: 379))
-                pot.addQuadCurve(to: CGPoint(x: 105, y: 379), control: CGPoint(x: 160, y: 394)); pot.closeSubpath()
-                context.fill(pot, with: .color(RGB(0xBB7B59).color))
-                context.fill(Path(roundedRect: CGRect(x: 85, y: 310, width: 150, height: 21), cornerRadius: 6), with: .color(RGB(0xD49D7D).color))
-                var shine = Path(); shine.move(to: CGPoint(x: 102, y: 337)); shine.addLine(to: CGPoint(x: 113, y: 372))
-                context.stroke(shine, with: .color(RGB(0xD99E7C).color), style: StrokeStyle(lineWidth: 6, lineCap: .round))
+                leaf.addQuadCurve(to: CGPoint(x: 0, y: -12), control: CGPoint(x: -5, y: -6))
+                leaf.addQuadCurve(to: .zero, control: CGPoint(x: 5, y: -6))
+                layer.fill(leaf, with: .color((i % 3 == 0 ? Palette.yellow : Palette.brown).color))
             }
         }
+    }
 
+    /// Leaf outline drawn upward from its base (−y), plus its lighter half.
+    private func leafPaths(_ leaf: PlantForm.Leaf) -> (Path, Path) {
+        let L = leaf.length, W = leaf.width / 2
+        func p(_ a: Double, _ c: Double) -> CGPoint { CGPoint(x: c * W, y: -a * L) }
+        var body = Path(), half = Path()
+        switch leaf.shape {
+        case .round, .cotyledon, .broad:
+            let k = leaf.shape == .broad ? 1.15 : 1.05
+            body.move(to: .zero)
+            body.addCurve(to: p(1, 0), control1: p(0.05, -1.25 * k), control2: p(0.95, -0.95 * k))
+            body.addCurve(to: .zero, control1: p(0.95, 0.95 * k), control2: p(0.05, 1.25 * k))
+            half.move(to: .zero); half.addCurve(to: p(1, 0), control1: p(0.05, -1.25 * k), control2: p(0.95, -0.95 * k)); half.closeSubpath()
+        case .oval, .heart:
+            body.move(to: .zero)
+            body.addCurve(to: p(1, 0), control1: p(0.18, -1.3), control2: p(0.8, -0.75))
+            body.addCurve(to: .zero, control1: p(0.8, 0.75), control2: p(0.18, 1.3))
+            half.move(to: .zero); half.addCurve(to: p(1, 0), control1: p(0.18, -1.3), control2: p(0.8, -0.75)); half.closeSubpath()
+        case .lance, .longLance, .slender:
+            body.move(to: .zero)
+            body.addCurve(to: p(1, 0), control1: p(0.3, -1.35), control2: p(0.72, -0.9))
+            body.addCurve(to: .zero, control1: p(0.72, 0.9), control2: p(0.3, 1.35))
+            half.move(to: .zero); half.addCurve(to: p(1, 0), control1: p(0.3, -1.35), control2: p(0.72, -0.9)); half.closeSubpath()
+        }
+        return (body, half)
+    }
+
+    private func drawFlower(_ f: PlantForm.Flower, in ctx: GraphicsContext, petal: RGB, center: RGB) {
+        let s = f.size
+        func circle(_ x: Double, _ y: Double, _ r: Double) -> Path { Path(ellipseIn: CGRect(x: x - r, y: y - r, width: r * 2, height: r * 2)) }
+        switch f.kind {
+        case .bud:
+            // Green calyx with the petal colour showing at the tip.
+            let h = s * (0.9 + 0.5 * f.openness), wd = s * 0.55
+            ctx.fill(Path(ellipseIn: CGRect(x: -wd / 2, y: -h, width: wd, height: h)), with: .color(petal.mixed(Palette.stem, 0.65 - f.openness).color))
+            var calyx = Path()
+            calyx.move(to: CGPoint(x: -wd * 0.6, y: -h * 0.3)); calyx.addQuadCurve(to: CGPoint(x: wd * 0.6, y: -h * 0.3), control: CGPoint(x: 0, y: h * 0.25))
+            calyx.addQuadCurve(to: CGPoint(x: -wd * 0.6, y: -h * 0.3), control: CGPoint(x: 0, y: -h * 0.55))
+            ctx.fill(calyx, with: .color(Palette.stem.color))
+        case .driedPod:
+            ctx.fill(Path(ellipseIn: CGRect(x: -s * 0.3, y: 0, width: s * 0.6, height: s * 1.2)), with: .color(Palette.darkBrown.color))
+            var tip = Path(); tip.move(to: CGPoint(x: 0, y: s * 1.2)); tip.addLine(to: CGPoint(x: 0, y: s * 1.55))
+            ctx.stroke(tip, with: .color(Palette.darkBrown.color), lineWidth: 1)
+        case .bell:
+            // Copihue-style bell hanging mouth-down from the pedicel, with a scalloped flared rim.
+            let open = 0.8 + 0.2 * f.openness, h = s * 1.9, top = s * 0.28, mouth = s * 0.62 * open
+            func q(_ x: Double, _ y: Double) -> CGPoint { CGPoint(x: x, y: y) }
+            var bell = Path()
+            bell.move(to: q(-top, 0))
+            bell.addCurve(to: q(-mouth * 0.92, h * 0.78), control1: q(-top * 2.2, h * 0.15), control2: q(-mouth * 1.05, h * 0.45))
+            bell.addQuadCurve(to: q(-mouth * 1.12, h), control: q(-mouth * 0.95, h * 0.93))
+            bell.addQuadCurve(to: q(-mouth * 0.36, h * 0.95), control: q(-mouth * 0.76, h * 1.05))
+            bell.addQuadCurve(to: q(mouth * 0.36, h * 0.95), control: q(0, h * 1.07))
+            bell.addQuadCurve(to: q(mouth * 1.12, h), control: q(mouth * 0.76, h * 1.05))
+            bell.addQuadCurve(to: q(mouth * 0.92, h * 0.78), control: q(mouth * 0.95, h * 0.93))
+            bell.addCurve(to: q(top, 0), control1: q(mouth * 1.05, h * 0.45), control2: q(top * 2.2, h * 0.15))
+            bell.closeSubpath()
+            ctx.fill(bell, with: .color(petal.color))
+            // Light on one side, colour deepening toward the mouth.
+            var light = Path()
+            light.move(to: q(top * 0.2, h * 0.05))
+            light.addCurve(to: q(mouth * 0.6, h * 0.86), control1: q(top * 1.6, h * 0.2), control2: q(mouth * 0.8, h * 0.5))
+            light.addLine(to: q(mouth * 0.1, h * 0.9)); light.closeSubpath()
+            ctx.fill(light, with: .color(petal.lighter(0.25).color.opacity(0.7)))
+            for x in [-0.55, 0.0, 0.55] {
+                var vein = Path(); vein.move(to: q(x * top, h * 0.12)); vein.addQuadCurve(to: q(x * mouth, h * 0.93), control: q(x * mouth * 0.7, h * 0.5))
+                ctx.stroke(vein, with: .color(center.color.opacity(0.45)), lineWidth: 0.8)
+            }
+            var rim = Path()
+            rim.move(to: q(-mouth * 1.12, h)); rim.addQuadCurve(to: q(-mouth * 0.36, h * 0.95), control: q(-mouth * 0.76, h * 1.05))
+            rim.addQuadCurve(to: q(mouth * 0.36, h * 0.95), control: q(0, h * 1.07)); rim.addQuadCurve(to: q(mouth * 1.12, h), control: q(mouth * 0.76, h * 1.05))
+            ctx.stroke(rim, with: .color(center.color), style: StrokeStyle(lineWidth: 2.4, lineCap: .round))
+            ctx.fill(Path(ellipseIn: CGRect(x: -top * 0.9, y: -top * 0.5, width: top * 1.8, height: top)), with: .color(Palette.stem.color))
+        default:
+            let open = 0.55 + 0.45 * f.openness
+            switch f.kind {
+            case .round5, .smallStar, .star5:
+                let pointed = f.kind != .round5
+                for i in 0..<5 {
+                    var leaf = ctx
+                    leaf.rotate(by: .radians(Double(i) * 2 * .pi / 5))
+                    let L = s * open, Wd = s * (pointed ? 0.42 : 0.62) * open
+                    var path = Path()
+                    if pointed {
+                        path.move(to: .zero)
+                        path.addQuadCurve(to: CGPoint(x: 0, y: -L), control: CGPoint(x: -Wd, y: -L * 0.45))
+                        path.addQuadCurve(to: .zero, control: CGPoint(x: Wd, y: -L * 0.45))
+                    } else {
+                        path = Path(ellipseIn: CGRect(x: -Wd / 2, y: -L, width: Wd, height: L * 0.98))
+                    }
+                    leaf.fill(path, with: .color(petal.color))
+                    leaf.fill(Path(ellipseIn: CGRect(x: -Wd * 0.18, y: -L * 0.8, width: Wd * 0.36, height: L * 0.5)), with: .color(petal.lighter(0.18).color.opacity(0.6)))
+                }
+                ctx.fill(circle(0, 0, s * 0.26), with: .color(center.color))
+            case .daisy:
+                for i in 0..<12 {
+                    var leaf = ctx
+                    leaf.rotate(by: .radians(Double(i) * 2 * .pi / 12))
+                    leaf.fill(Path(ellipseIn: CGRect(x: -s * 0.12, y: -s * open, width: s * 0.24, height: s * 0.8 * open)), with: .color(petal.color))
+                }
+                ctx.fill(circle(0, 0, s * 0.3), with: .color(center.color))
+                ctx.fill(circle(-s * 0.08, -s * 0.08, s * 0.12), with: .color(center.lighter(0.3).color.opacity(0.7)))
+            case .rose:
+                // Five outer petals, a cupped middle and a swirled heart.
+                for i in 0..<5 {
+                    let a = Double(i) * 2 * .pi / 5
+                    ctx.fill(circle(sin(a) * s * 0.42 * open, -cos(a) * s * 0.42 * open, s * 0.5 * open), with: .color(petal.color))
+                }
+                ctx.fill(circle(0, 0, s * 0.55 * open), with: .color(petal.lighter(0.12).color))
+                for (r, start) in [(0.42, 190.0), (0.28, 20.0), (0.16, 200.0)] {
+                    var arc = Path(); arc.addArc(center: .zero, radius: s * r * open, startAngle: .degrees(start), endAngle: .degrees(start + 200), clockwise: false)
+                    ctx.stroke(arc, with: .color(petal.darker(0.16).color), style: StrokeStyle(lineWidth: 1.2, lineCap: .round))
+                }
+            case .camellia:
+                for ring in 0..<2 {
+                    for i in 0..<6 {
+                        var leaf = ctx
+                        leaf.rotate(by: .radians(Double(i) * .pi / 3 + Double(ring) * .pi / 6))
+                        let r = s * open * (ring == 0 ? 1 : 0.68)
+                        leaf.fill(Path(ellipseIn: CGRect(x: -r * 0.36, y: -r, width: r * 0.72, height: r * 0.86)),
+                                  with: .color((ring == 0 ? petal : petal.lighter(0.12)).color))
+                    }
+                }
+                ctx.fill(circle(0, 0, s * 0.22), with: .color(center.color))
+            default: break
+            }
+        }
+    }
+
+    private func drawPot(_ context: GraphicsContext) {
+        if form.provider == .codex {
+            // Sage rounded planter.
+            let body = Path(roundedRect: CGRect(x: 108, y: 334, width: 104, height: 52), cornerRadius: 13)
+            context.fill(body, with: .color(RGB(0x6E9C88).color))
+            context.fill(Path(roundedRect: CGRect(x: 104, y: 328, width: 112, height: 14), cornerRadius: 7), with: .color(RGB(0x86B09E).color))
+            var shine = Path(); shine.move(to: CGPoint(x: 118, y: 348)); shine.addLine(to: CGPoint(x: 118, y: 372))
+            context.stroke(shine, with: .color(RGB(0xA7C8B9).color.opacity(0.8)), style: StrokeStyle(lineWidth: 4, lineCap: .round))
+        } else {
+            // Terracotta flared pot.
+            var pot = Path()
+            pot.move(to: CGPoint(x: 110, y: 338)); pot.addLine(to: CGPoint(x: 210, y: 338)); pot.addLine(to: CGPoint(x: 199, y: 382))
+            pot.addQuadCurve(to: CGPoint(x: 121, y: 382), control: CGPoint(x: 160, y: 390)); pot.closeSubpath()
+            context.fill(pot, with: .color(RGB(0xCB7448).color))
+            context.fill(Path(roundedRect: CGRect(x: 104, y: 328, width: 112, height: 15), cornerRadius: 5), with: .color(RGB(0xDC8B5E).color))
+            var shine = Path(); shine.move(to: CGPoint(x: 120, y: 348)); shine.addLine(to: CGPoint(x: 126, y: 374))
+            context.stroke(shine, with: .color(RGB(0xE5A27C).color), style: StrokeStyle(lineWidth: 4, lineCap: .round))
+        }
     }
 }
 #endif

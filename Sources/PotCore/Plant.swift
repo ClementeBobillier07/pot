@@ -62,6 +62,8 @@ public struct PlantState: Codable, Equatable, Sendable {
     public var nextFlower: Date
     public var creditedBeforeDay: Int
     public var lastReliableObservation: Date
+    /// Energy turned into visible growth (engine 3). `nil` in plants stored by older engines.
+    public var growth: Double?
 
     public init(seed: UInt64, provider: Provider, createdAt: Date) {
         self.seed = seed
@@ -113,11 +115,13 @@ public struct PlantState: Codable, Equatable, Sendable {
 ///   a light day (1 M) gives 0.14; a very heavy day (70 M+) gives the maximum 3.
 /// * Energy is banked as the day's work is observed and spent on growth; leaves, branches and
 ///   flowers cost energy, so light use grows slowly and heavy use grows visibly faster.
-/// * Health: no change during the first day without use; then −0.18 per idle day (2 days ≈ 0.82,
-///   3 ≈ 0.64, 4 ≈ 0.46), never below 0.15. Wilted plants don't grow. Days with use restore it
-///   (≈ +0.4/day on a reference day), so a few days of coding bring it back.
+/// * Visible growth (engine 3) accumulates the day's energy scaled by vigor; at one reference
+///   day per day a plant is full after 90 days (see `PlantFormBuilder`).
+/// * Health (engine 3, half the owner's reference timeline): unchanged for a day without
+///   use, then ≈ 0.85 at 1.5 days, 0.65 at 3.5 days, 0.40 at 7 days and 0.15 (dry, never dead)
+///   at 15 days. Wilted plants don't grow. Days with use restore it in about two to three days.
 public enum PlantEngine {
-    public static let version = 2
+    public static let version = 3
     public static let maximumLeaves = 32
     public static let maximumFlowers = 6
     public static let maximumBranches = 12
@@ -126,7 +130,16 @@ public enum PlantEngine {
     /// A typical day of agent work in work units (hypothesis between a light Codex day of ~1.7 M and
     /// a heavy Claude Code day of ~20 M measured on real logs; tune with the beta).
     public static let referenceDailyWork = 10_000_000.0
-    public static let wiltPerIdleDay = 0.18
+    /// Health lost per idle day, by how long the plant has been idle (days).
+    public static func wiltRate(idleDays d: Double) -> Double {
+        switch d {
+        case ..<1: return 0
+        case ..<1.5: return 0.3
+        case ..<3.5: return 0.10
+        case ..<7: return 0.25 / 3.5
+        default: return 0.25 / 8
+        }
+    }
     public static let minimumHealth = 0.15
     public static let recoveryPerActiveDay = 0.3
     /// Maturity (energy spent on growth) needed before the first bud: ≈ 12 reference days.
@@ -214,6 +227,8 @@ public enum PlantEngine {
                 let entitlement = dailyEnergy(work: Double(observedTokens[currentDay, default: 0]))
                 let grant = max(0, entitlement - record.credited)
                 state.reserve = min(maximumReserve, state.reserve + grant)
+                // Visible growth: wilted plants can't turn energy into growth.
+                state.growth = (state.growth ?? 0) + grant * min(1, max(0, (state.health - 0.35) / 0.45))
                 record.credited += grant
                 ledger[currentDay] = record
                 todayEnergy = record.credited
@@ -233,10 +248,10 @@ public enum PlantEngine {
     private static func age(state: inout PlantState, hours: Double, now: Date, dataAvailable: Bool) {
         if dataAvailable {
             let lastUse = max(state.lastActivity ?? state.createdAt, state.createdAt)
-            let idleEnd = now.timeIntervalSince(lastUse) / hour
-            let idleHours = max(0, min(hours, idleEnd - 24)) // hours of this step beyond the first idle day
-            if idleHours > 0 {
-                state.health = max(minimumHealth, state.health - wiltPerIdleDay * idleHours / 24)
+            let idleDays = now.timeIntervalSince(lastUse) / 86400
+            if idleDays > 1 {
+                let hoursIdle = min(hours, (idleDays - 1) * 24)
+                state.health = max(minimumHealth, state.health - wiltRate(idleDays: idleDays) * hoursIdle / 24)
             }
         }
         for i in state.organs.indices {
@@ -248,6 +263,7 @@ public enum PlantEngine {
     private static func tick(state: inout PlantState, hours: Double, now: Date, dataAvailable: Bool, todayEnergy: Double) {
         age(state: &state, hours: hours, now: now, dataAvailable: dataAvailable)
         // Recovery while in use (activity within the last day), faster on fuller days.
+        // "In use" = activity within the last day, the moment wilting would begin.
         if dataAvailable, let activity = state.lastActivity, now.timeIntervalSince(activity) < 24 * hour {
             let effort = min(1.4, max(0.35, todayEnergy + 0.3))
             state.health = min(1, state.health + recoveryPerActiveDay * effort * hours / 24)
