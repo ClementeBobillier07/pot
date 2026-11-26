@@ -55,7 +55,7 @@ Para reiniciar el estado de desarrollo: `rm -rf ~/Library/Application\ Support/P
 - **Precios:** catálogo con Opus, Sonnet y Haiku 5.5, incluidos los dos tramos de Haiku según el largo del prompt. `codex-auto-review` queda sin precio a propósito.
 - **Motor de la planta:**
   - La calibración sigue la mediana observada hasta tener 7 días activos.
-  - Plantas según los referentes del dueño (motor 3): 4 variantes por semilla (01 40 %, 02 35 %, 03 24 %, copihue 1 %), crecimiento constante hasta planta plena a los 90 días de referencia y marchitamiento a la mitad de los tiempos del referente (1,5 / 3,5 / 7 / 15 días). `Pot --render-plants DIR` genera las láminas.
+  - Plantas según los referentes del dueño (motor 3): 4 variantes por semilla (01 40 %, 02 35 %, 03 24 %, copihue 1 %), crecimiento constante hasta planta plena a los 90 días de referencia y marchitamiento a la mitad de los tiempos del referente (1,5 / 3,5 / 7 / 15 días); recuperarse toma el doble (unos 5–6 días de uso típico desde seca). `Pot --render-plants DIR` genera las láminas.
   - Motor de crecimiento 2: un mismo ritmo para todos (energía diaria = log2(1 + trabajo ÷ 10 M), máximo 3; el trabajo pondera lecturas de caché ×0,1 y salida ×5). Crecer cuesta energía y marchitarse es rápido: sin cambio el primer día sin uso, luego −0,18 por día, mínimo 0,15; se recupera en unos 3 días de uso. No hay pausa ni renombrar plantas. Detalle en `docs/ENGINE.md`.
   - Las ramas crecen equilibradas.
 - **App:**

@@ -127,10 +127,12 @@ final class PlantTests: XCTestCase {
         PlantEngine.advance(state: &state, events: [work], now: at(60))
         XCTAssertEqual(state.health, PlantEngine.minimumHealth, accuracy: 0.00001, "Dry, never dead")
         let growth = state.growth ?? 0
-        // A few ordinary days of work bring it back.
-        let comeback = (60..<63).map { event(Double($0) * 86400 + 9 * 3600, 10_000_000, id: "back\($0)") }
+        // Coming back takes about twice as long as before: not yet after three days, yes after six.
+        let comeback = (60..<66).map { event(Double($0) * 86400 + 9 * 3600, 10_000_000, id: "back\($0)") }
         PlantEngine.advance(state: &state, events: [work] + comeback, now: start.addingTimeInterval(63 * 86400))
-        XCTAssertGreaterThan(state.health, 0.8)
+        XCTAssertLessThan(state.health, 0.8)
+        PlantEngine.advance(state: &state, events: [work] + comeback, now: start.addingTimeInterval(66 * 86400))
+        XCTAssertGreaterThan(state.health, 0.9)
         XCTAssertGreaterThanOrEqual(state.growth ?? 0, growth)
     }
 

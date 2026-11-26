@@ -91,8 +91,8 @@ enum PlantSnapshots {
             samples.append(Sample(name: "away\(away)", caption: label, plant: plant))
         }
         let back = 89 + 15
-        events += usage(provider, days: back..<(back + 4))
-        for (days, label) in [(1.0, "1 day back"), (3.5, "3.5 days back")] {
+        events += usage(provider, days: back..<(back + 8))
+        for (days, label) in [(1.0, "1 day back"), (3.5, "3.5 days back"), (7, "7 days back")] {
             PlantEngine.advance(state: &plant, events: events, now: start.addingTimeInterval((Double(back) + days) * 86400 + 3600))
             samples.append(Sample(name: "back\(days)", caption: label, plant: plant))
         }

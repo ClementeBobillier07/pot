@@ -119,7 +119,7 @@ public struct PlantState: Codable, Equatable, Sendable {
 ///   day per day a plant is full after 90 days (see `PlantFormBuilder`).
 /// * Health (engine 3, half the owner's reference timeline): unchanged for a day without
 ///   use, then ≈ 0.85 at 1.5 days, 0.65 at 3.5 days, 0.40 at 7 days and 0.15 (dry, never dead)
-///   at 15 days. Wilted plants don't grow. Days with use restore it in about two to three days.
+///   at 15 days. Wilted plants don't grow. Days with use restore it in about five to six days.
 public enum PlantEngine {
     public static let version = 3
     public static let maximumLeaves = 32
@@ -141,7 +141,8 @@ public enum PlantEngine {
         }
     }
     public static let minimumHealth = 0.15
-    public static let recoveryPerActiveDay = 0.3
+    /// Owner, 2026-11-26: recovery takes twice as long as wilting's first version (≈ 5–6 days of typical use from dry).
+    public static let recoveryPerActiveDay = 0.15
     /// Maturity (energy spent on growth) needed before the first bud: ≈ 12 reference days.
     public static let flowerMaturity = 12.0
     static let flowerCost = 1.2
