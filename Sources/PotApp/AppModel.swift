@@ -139,6 +139,8 @@ final class AppModel: ObservableObject {
     @Published var showSettings = false
     /// Overview of every plant instead of one plant's details.
     @Published var showGrid = false
+    /// Direction of the last plant switch (−1 previous, +1 next), so views slide the right way.
+    @Published private(set) var navigationDirection = 1
     @Published var mainVisible = false
     @Published var onboardingStep = 0
     @Published var onboarded = UserDefaults.standard.bool(forKey: "onboarded")
@@ -308,6 +310,7 @@ final class AppModel: ObservableObject {
     }
     func navigate(_ direction: Int) {
         guard !snapshots.isEmpty else { return }
+        navigationDirection = direction < 0 ? -1 : 1
         let current = snapshots.firstIndex { $0.profile.id == selectedID } ?? 0
         selectedID = snapshots[(current + direction + snapshots.count) % snapshots.count].profile.id
     }

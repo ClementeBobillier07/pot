@@ -81,6 +81,17 @@ enum PlantLayout {
     }
 }
 
+/// Switching plants: the old one slides out and fades quickly, the new one slides in from the
+/// side the gesture points to, so two pots never sit blended on top of each other.
+enum PlantSwitch {
+    static func transition(direction: Int) -> AnyTransition {
+        let d: CGFloat = direction < 0 ? -1 : 1
+        return .asymmetric(
+            insertion: .offset(x: 46 * d).combined(with: .opacity).animation(.easeOut(duration: 0.26).delay(0.08)),
+            removal: .offset(x: -46 * d).combined(with: .opacity).animation(.easeIn(duration: 0.14)))
+    }
+}
+
 struct PlantView: View {
     let plant: PlantState
     var active = false

@@ -104,7 +104,7 @@ struct MainView: View {
                 }
                 PlantView(plant: account.plant, active: model.mainVisible && isActive(account), idle: model.mainVisible).frame(width: 290, height: 300)
                     .id(account.profile.id)
-                    .transition(reduceMotion ? .identity : .opacity.combined(with: .scale(scale: 0.96, anchor: .bottom)))
+                    .transition(reduceMotion ? .opacity : PlantSwitch.transition(direction: model.navigationDirection))
                     .padding(.top, -6).padding(.bottom, 4)
                 Picker("Period", selection: $period) {
                     ForEach(UsagePeriod.allCases) { Text($0.title).tag($0) }
@@ -459,15 +459,21 @@ private final class ScrollNavigationView: NSView {
     private var monitor: Any?
     private var accumulation = 0.0
     private var lastNavigation = Date.distantPast
+    private var switched = false
     init(navigate: @escaping (Int) -> Void) {
         self.navigate = navigate; super.init(frame: .zero)
         monitor = NSEvent.addLocalMonitorForEvents(matching: .scrollWheel) { [weak self] event in
-            guard let self, event.window === self.window,
-                  abs(event.scrollingDeltaX) > abs(event.scrollingDeltaY) * 1.5,
-                  Date().timeIntervalSince(self.lastNavigation) > 0.6 else { return event }
-            self.accumulation += event.scrollingDeltaX
-            if abs(self.accumulation) > 65 {
+            guard let self, event.window === self.window else { return event }
+            // One switch per trackpad gesture (phases); momentum ignored; cooldown for mouse wheels.
+            if event.phase.contains(.began) || event.phase.contains(.mayBegin) { self.accumulation = 0; self.switched = false }
+            if event.phase.contains(.ended) || event.phase.contains(.cancelled) { self.accumulation = 0; return event }
+            guard event.momentumPhase.isEmpty, !self.switched,
+                  abs(event.scrollingDeltaX) > abs(event.scrollingDeltaY) * 1.5 else { return event }
+            let phased = !event.phase.isEmpty
+            self.accumulation += event.hasPreciseScrollingDeltas ? event.scrollingDeltaX : event.scrollingDeltaX * 12
+            if abs(self.accumulation) > 65, phased || Date().timeIntervalSince(self.lastNavigation) > 0.7 {
                 self.navigate(self.accumulation > 0 ? -1 : 1)
+                self.switched = phased
                 self.accumulation = 0; self.lastNavigation = Date()
             }
             return event
