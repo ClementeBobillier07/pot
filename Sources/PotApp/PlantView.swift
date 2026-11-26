@@ -1,4 +1,5 @@
 #if os(macOS)
+import AppKit
 import SwiftUI
 import PotCore
 
@@ -78,6 +79,39 @@ enum PlantLayout {
         func t(_ x: Double, _ y: Double) -> CGPoint { CGPoint(x: anchor.x + (x - anchor.x) * fit, y: anchor.y + (y - anchor.y) * fit) }
         let a = t(minX, minY), b = t(maxX, maxY)
         return CGRect(x: max(0, a.x), y: max(0, a.y), width: min(320, b.x) - max(0, a.x), height: min(400, b.y) - max(0, a.y))
+    }
+}
+
+/// Turns a stream of scroll events into at most one plant switch per trackpad gesture.
+/// It must outlive the views that receive the events: switching plants recreates the plant
+/// view (and its event surface) mid-gesture, and a fresh per-view state would switch again.
+@MainActor
+final class SwipeGate {
+    static let floating = SwipeGate()
+    private var accumulation = 0.0
+    private var switched = false
+    private var lastSwitch = Date.distantPast
+    private var lastEvent = Date.distantPast
+    /// Returns −1 / +1 when this event completes a switch, otherwise nil.
+    func direction(for event: NSEvent, threshold: Double = 45) -> Int? {
+        let now = Date()
+        defer { lastEvent = now }
+        if event.phase.contains(.began) || event.phase.contains(.mayBegin) { accumulation = 0; switched = false }
+        // A gesture that never reported its end (window changed under the fingers) expires.
+        if switched && now.timeIntervalSince(lastEvent) > 0.35 { switched = false; accumulation = 0 }
+        if event.phase.contains(.ended) || event.phase.contains(.cancelled) { accumulation = 0; return nil }
+        guard event.momentumPhase.isEmpty, !switched else { return nil }
+        let dx = event.scrollingDeltaX, dy = event.scrollingDeltaY
+        guard abs(dx) > abs(dy) * 1.2 else { return nil }
+        let phased = !event.phase.isEmpty
+        accumulation += event.hasPreciseScrollingDeltas ? dx : dx * 12
+        // Mouse wheels have no phases: fall back to a cooldown.
+        guard abs(accumulation) > threshold, phased || now.timeIntervalSince(lastSwitch) > 0.7 else { return nil }
+        let result = accumulation > 0 ? -1 : 1
+        switched = phased
+        accumulation = 0
+        lastSwitch = now
+        return result
     }
 }
 

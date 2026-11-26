@@ -241,9 +241,6 @@ private final class DragSurfaceView: NSView {
     var clicked: () -> Void
     var moved: () -> Void
     var navigate: (Int) -> Void
-    private var scrollAccumulation = 0.0
-    private var lastNavigation = Date.distantPast
-    private var switchedThisGesture = false
     private var startMouse = NSPoint.zero
     private var startOrigin = NSPoint.zero
     private var dragged = false
@@ -264,22 +261,7 @@ private final class DragSurfaceView: NSView {
     /// Two-finger horizontal swipe over the plant switches plants, like in the Pot window.
     /// One switch per gesture: momentum is ignored and a short cooldown prevents skipping plants.
     override func scrollWheel(with event: NSEvent) {
-        // Trackpad gestures have phases: switch exactly once between .began and .ended, however
-        // long the fingers keep moving. (Previously a long swipe switched twice and, with two
-        // plants, landed back on the same one.) Momentum events after lifting are ignored.
-        if event.phase.contains(.began) || event.phase.contains(.mayBegin) { scrollAccumulation = 0; switchedThisGesture = false }
-        if event.phase.contains(.ended) || event.phase.contains(.cancelled) { scrollAccumulation = 0; return }
-        guard event.momentumPhase.isEmpty, !switchedThisGesture else { return }
-        let dx = event.scrollingDeltaX, dy = event.scrollingDeltaY
-        guard abs(dx) > abs(dy) * 1.2 else { return }
-        let phased = !event.phase.isEmpty
-        scrollAccumulation += event.hasPreciseScrollingDeltas ? dx : dx * 12
-        // Mouse wheels have no phases: fall back to a cooldown.
-        guard abs(scrollAccumulation) > 45, phased || Date().timeIntervalSince(lastNavigation) > 0.7 else { return }
-        navigate(scrollAccumulation > 0 ? -1 : 1)
-        switchedThisGesture = phased
-        scrollAccumulation = 0
-        lastNavigation = Date()
+        if let direction = MainActor.assumeIsolated({ SwipeGate.floating.direction(for: event) }) { navigate(direction) }
     }
 }
 #endif

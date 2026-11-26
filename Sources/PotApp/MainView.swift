@@ -457,25 +457,12 @@ private struct TrackpadNavigation: NSViewRepresentable {
 private final class ScrollNavigationView: NSView {
     var navigate: (Int) -> Void
     private var monitor: Any?
-    private var accumulation = 0.0
-    private var lastNavigation = Date.distantPast
-    private var switched = false
+    private let gate = SwipeGate()
     init(navigate: @escaping (Int) -> Void) {
         self.navigate = navigate; super.init(frame: .zero)
         monitor = NSEvent.addLocalMonitorForEvents(matching: .scrollWheel) { [weak self] event in
             guard let self, event.window === self.window else { return event }
-            // One switch per trackpad gesture (phases); momentum ignored; cooldown for mouse wheels.
-            if event.phase.contains(.began) || event.phase.contains(.mayBegin) { self.accumulation = 0; self.switched = false }
-            if event.phase.contains(.ended) || event.phase.contains(.cancelled) { self.accumulation = 0; return event }
-            guard event.momentumPhase.isEmpty, !self.switched,
-                  abs(event.scrollingDeltaX) > abs(event.scrollingDeltaY) * 1.5 else { return event }
-            let phased = !event.phase.isEmpty
-            self.accumulation += event.hasPreciseScrollingDeltas ? event.scrollingDeltaX : event.scrollingDeltaX * 12
-            if abs(self.accumulation) > 65, phased || Date().timeIntervalSince(self.lastNavigation) > 0.7 {
-                self.navigate(self.accumulation > 0 ? -1 : 1)
-                self.switched = phased
-                self.accumulation = 0; self.lastNavigation = Date()
-            }
+            if let direction = MainActor.assumeIsolated({ self.gate.direction(for: event, threshold: 65) }) { self.navigate(direction) }
             return event
         }
     }
