@@ -5,7 +5,7 @@
     <key>CFBundleDevelopmentRegion</key><string>en</string>
     <key>CFBundleDisplayName</key><string>Pot</string>
     <key>CFBundleExecutable</key><string>Pot</string>
-    <key>CFBundleIdentifier</key><string>com.pot.mac</string>
+    <key>CFBundleIdentifier</key><string>com.agentpots.pot</string>
     <key>CFBundleInfoDictionaryVersion</key><string>6.0</string>
     <key>CFBundleName</key><string>Pot</string>
     <key>CFBundlePackageType</key><string>APPL</string>

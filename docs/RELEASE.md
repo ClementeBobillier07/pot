@@ -4,7 +4,7 @@ Nothing here runs automatically. Each step that contacts Apple or GitHub is an e
 
 ## 0. Decisions to close first (owner)
 
-- [ ] D06 brand/domain: final bundle ID (today `com.pot.mac`, a development default) and landing domain.
+- [x] Bundle ID `com.agentpots.pot`; landing domain agentpots.com (owner to purchase).
 - [ ] D06 license for the source (today "owner-reserved"; notices already list zstd BSD, SQLite PD).
 - [ ] D05 minimum macOS (code targets macOS 14) and Intel support (universal builds; needs a run on an Intel Mac).
 
