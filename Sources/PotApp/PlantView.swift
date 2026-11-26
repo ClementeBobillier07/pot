@@ -146,7 +146,7 @@ struct PlantView: View {
         .onChange(of: plant.lastActivity) { _, _ in if active { pulse() } }
         .onDisappear { dancing = false }
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel("\(plant.provider.displayName) plant, \(PlantSpecies.of(seed: plant.seed).title(for: plant.provider))")
+        .accessibilityLabel("\(plant.provider.displayName) plant")
         .accessibilityValue(plant.health > 0.8 ? "Growing peacefully" : plant.health > 0.45 ? "A little thirsty" : "Wilted. A few days of work will bring it back.")
     }
     /// Activity dance, or a slow breeze unique to each plant (phase and tempo from its seed).

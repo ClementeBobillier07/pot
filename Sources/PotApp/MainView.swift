@@ -396,28 +396,27 @@ private struct SettingsView: View {
 }
 
 /// One calm line about the plant: how it's growing, or how long it has been without work.
+/// The variant is never named (owner, 2026-11-26): people discover what their seed becomes.
 enum PlantStatus {
     static func describe(_ plant: PlantState, lastActivity: Date?, now: Date = Date()) -> String {
-        let species = PlantSpecies.of(seed: plant.seed)
-        let name = species == .copihue ? "\(species.title(for: plant.provider)) · rare" : species.title(for: plant.provider)
         let idleDays = lastActivity.map { max(0, now.timeIntervalSince($0) / 86400) } ?? 0
         if plant.health < 0.97 {
-            if idleDays < 1 { return "\(name) · recovering" }
+            if idleDays < 1 { return "Recovering" }
             let days = Int(idleDays)
             let away = days == 1 ? "1 day without work" : "\(days) days without work"
-            if plant.health > 0.75 { return "\(name) · a little thirsty · \(away)" }
-            if plant.health > 0.4 { return "\(name) · wilting · \(away)" }
-            return "\(name) · dry · a week of work brings it back"
+            if plant.health > 0.75 { return "A little thirsty · \(away)" }
+            if plant.health > 0.4 { return "Wilting · \(away)" }
+            return "Dry · a week of work brings it back"
         }
         let form = PlantFormBuilder.build(plant)
         let stage: String
         switch form.growth {
-        case ..<0.04: stage = "a new seedling"
-        case ..<0.3: stage = "growing"
-        case ..<1: stage = form.flowers.contains { $0.openness >= 0.6 } ? "in bloom" : "budding"
-        default: stage = "fully grown"
+        case ..<0.04: stage = "A new seedling"
+        case ..<0.3: stage = "Growing"
+        case ..<1: stage = form.flowers.contains { $0.openness >= 0.6 } ? "In bloom" : "Budding"
+        default: stage = "Fully grown"
         }
-        return "\(name) · \(stage)"
+        return stage
     }
 }
 
