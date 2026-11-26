@@ -22,7 +22,7 @@ export default function Download({ compact = false }: { compact?: boolean }) {
   }, []);
   return <div className={`download ${compact ? 'download-compact' : ''}`}>
     {snapshot ? <a className="button" href={snapshot.downloadURL}><Apple />Download for macOS</a> : <a className="button" href="#download"><Apple />Download for macOS</a>}
-    {!compact && <p className="download-note" aria-live="polite">{snapshot ? <><span>{snapshot.total.toLocaleString('en-US')} installer downloads</span> · {snapshot.stale ? 'Last verified' : 'Updated'} {new Date(snapshot.updatedAt).toLocaleDateString('en-US')}<br />Downloads count files, not unique people.</> : <>Free. Local. A little more alive.<br /><span className="availability">First macOS build in development.</span></>}</p>}
+    {!compact && <p className="download-note" aria-live="polite">{snapshot ? <><span>{snapshot.total.toLocaleString('en-US')} installer downloads</span> · {snapshot.stale ? 'Last verified' : 'Updated'} {new Date(snapshot.updatedAt).toLocaleDateString('en-US')}<br />Downloads count files, not unique people.</> : <>Free. Local. A little more alive.<br /><span className="availability">For macOS 14 or later.</span></>}</p>}
   </div>;
 }
 

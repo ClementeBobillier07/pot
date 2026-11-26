@@ -14,6 +14,10 @@ enum PotApplication {
         if let i = CommandLine.arguments.firstIndex(of: "--render-plants"), i + 1 < CommandLine.arguments.count {
             MainActor.assumeIsolated { PlantSnapshots.renderAndExit(to: CommandLine.arguments[i + 1]) }
         }
+        // `Pot --render-landing <dir>`: transparent illustration PNGs for the website, from the app's renderer.
+        if let i = CommandLine.arguments.firstIndex(of: "--render-landing"), i + 1 < CommandLine.arguments.count {
+            MainActor.assumeIsolated { PlantSnapshots.renderLandingAndExit(to: CommandLine.arguments[i + 1]) }
+        }
         MainActor.assumeIsolated {
             let app = NSApplication.shared
             let potDelegate = PotDelegate()
@@ -61,8 +65,11 @@ final class PotDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
 
     func openMain() {
         model.mainVisible = true
+        // macOS 14+ cooperative activation: the click on the plant or menu is the user's request.
+        // `orderFrontRegardless` keeps the window in front even if activation is declined.
+        NSApp.activate()
         window.makeKeyAndOrderFront(nil)
-        NSApp.activate(ignoringOtherApps: true)
+        window.orderFrontRegardless()
     }
 
     @objc private func statusClicked(_ sender: Any?) {

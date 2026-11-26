@@ -10,8 +10,10 @@ Nothing here runs automatically. Each step that contacts Apple or GitHub is an e
 
 ## 1. Apple credentials (once, owner)
 
-1. Enroll in the Apple Developer Program (USD 99/year).
-2. Create a **Developer ID Application** certificate in Xcode → Settings → Accounts → Manage Certificates. Keep the private key in your login Keychain; export an encrypted backup somewhere safe.
+Checked on the owner's Mac (2026-11-26): the Keychain has an **Apple Development** certificate only. That one signs builds for your own devices; distribution outside the App Store needs a **Developer ID Application** certificate.
+
+1. Apple Developer Program membership (done).
+2. Create a **Developer ID Application** certificate: Xcode → Settings → Accounts → select the team → Manage Certificates… → **+** → *Developer ID Application*. Only the team's Account Holder can create it. Keep the private key in your login Keychain and export an encrypted .p12 backup somewhere safe. Check with `security find-identity -v -p codesigning` (it should list "Developer ID Application: …").
 3. Create a notarytool profile (prompts for an app-specific password; nothing is stored in the repo):
    ```bash
    xcrun notarytool store-credentials pot-notary --apple-id YOU@EXAMPLE.COM --team-id TEAMID

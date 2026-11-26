@@ -54,6 +54,11 @@ private enum Palette {
 enum PlantLayout {
     static let anchor = CGPoint(x: 160, y: 386)
     static func fitScale(_ plant: PlantState) -> Double { 1 }
+    /// Canvas height (from the bottom) that holds this plant plus a little sky, so small plants
+    /// don't sit under a tall empty frame. Use with `PlantView(crop: true)`.
+    static func cropHeight(_ plant: PlantState, minimum: Double = 150) -> Double {
+        max(minimum, min(400, 400 - (PlantFormBuilder.build(plant).bounds.minY - 26)))
+    }
     static func visibleBounds(_ plant: PlantState) -> CGRect {
         let b = PlantFormBuilder.build(plant).bounds
         let minX = max(0, b.minX), minY = max(0, b.minY)
@@ -122,6 +127,9 @@ struct PlantView: View {
     /// Gentle continuous breathing while a window shows the plant. Off for the always-on
     /// floating panel to keep idle energy near zero; activity pulses still apply there.
     var idle = false
+    /// Show only the bottom of the canvas that the frame's aspect allows, at the frame's width
+    /// scale: the pot keeps its size and empty sky above small plants is cut away.
+    var crop = false
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var dancing = false
 
@@ -131,7 +139,7 @@ struct PlantView: View {
     var body: some View {
         let form = self.form
         return TimelineView(.animation(minimumInterval: dancing ? 1.0 / 24 : 1.0 / 15, paused: !(dancing || idle) || reduceMotion)) { timeline in
-            FormDrawing(form: form, sway: reduceMotion ? 0 : sway(at: timeline.date.timeIntervalSinceReferenceDate))
+            FormDrawing(form: form, crop: crop, sway: reduceMotion ? 0 : sway(at: timeline.date.timeIntervalSinceReferenceDate))
         }
         .onAppear { if active { pulse() } }
         .onChange(of: active) { _, value in if value { pulse() } else { dancing = false } }
@@ -162,13 +170,20 @@ struct PlantView: View {
 
 private struct FormDrawing: View {
     let form: PlantForm
+    var crop = false
     var sway: Double
 
     var body: some View {
         Canvas { context, size in
-            let scale = min(size.width / 320, size.height / 400)
-            context.translateBy(x: (size.width - 320 * scale) / 2, y: (size.height - 400 * scale) / 2)
-            context.scaleBy(x: scale, y: scale)
+            if crop {
+                let scale = size.width / 320
+                context.translateBy(x: 0, y: size.height - 400 * scale)
+                context.scaleBy(x: scale, y: scale)
+            } else {
+                let scale = min(size.width / 320, size.height / 400)
+                context.translateBy(x: (size.width - 320 * scale) / 2, y: (size.height - 400 * scale) / 2)
+                context.scaleBy(x: scale, y: scale)
+            }
             let leafColours = Palette.leaves(form)
             let flowerColours = Palette.flowers(form)
             let w = form.wilt

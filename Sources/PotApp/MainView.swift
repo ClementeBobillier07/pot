@@ -102,7 +102,9 @@ struct MainView: View {
                     }.frame(minWidth: 220)
                     navButton(1)
                 }
-                PlantView(plant: account.plant, active: model.mainVisible && isActive(account), idle: model.mainVisible).frame(width: 290, height: 300)
+                PlantView(plant: account.plant, active: model.mainVisible && isActive(account), idle: model.mainVisible, crop: true)
+                    .frame(width: 240, height: PlantLayout.cropHeight(account.plant, minimum: 170) * 0.75)
+                    .animation(reduceMotion ? nil : .easeInOut(duration: 0.4), value: PlantLayout.cropHeight(account.plant, minimum: 170))
                     .id(account.profile.id)
                     .transition(reduceMotion ? .opacity : PlantSwitch.transition(direction: model.navigationDirection))
                     .padding(.top, -6).padding(.bottom, 4)
@@ -163,10 +165,8 @@ struct MainView: View {
                 } else {
                     Spacer().frame(height: 20)
                 }
-                if Date().timeIntervalSince(account.plant.createdAt) < 3 * 86400 {
-                    Text("Getting to know your rhythm · day \(min(3, max(1, Int(Date().timeIntervalSince(account.plant.createdAt) / 86400) + 1))) of 3")
-                        .font(.caption).foregroundStyle(.secondary)
-                }
+                Text(PlantStatus.describe(account.plant, lastActivity: account.lastActivity))
+                    .font(.caption).foregroundStyle(.secondary).padding(.bottom, 2)
                 Text(account.coverage).font(.caption).foregroundStyle(.secondary)
                     .multilineTextAlignment(.center).padding(.horizontal, 30)
                 Text(coverageLine(account)).font(.caption).foregroundStyle(.secondary)
@@ -212,13 +212,22 @@ struct MainView: View {
 
 private struct OnboardingView: View {
     @ObservedObject var model: AppModel
+    /// Illustration only (not anyone's data): a fully grown variation-01 Codex plant.
+    static let illustration: PlantState = {
+        var seed: UInt64 = 17
+        while PlantSpecies.of(seed: seed) != .classic { seed += 1 }
+        var plant = PlantState(seed: seed, provider: .codex, createdAt: Date(timeIntervalSince1970: 0))
+        plant.growth = PlantFormBuilder.daysToFull
+        return plant
+    }()
     var body: some View {
         ScrollView {
         VStack(spacing: 22) {
             Spacer(minLength: 10)
             switch model.onboardingStep {
             case 0:
-                PlantView(plant: PlantState(seed: 17, provider: .codex, createdAt: Date())).frame(height: 240)
+                PlantView(plant: Self.illustration).frame(height: 240)
+                    .accessibilityHint("An illustration of what a plant can grow into")
                 Text("A little plant on your Mac.").font(.system(size: 28, weight: .regular, design: .serif)).multilineTextAlignment(.center)
                 Text("You code. It grows.").foregroundStyle(.secondary)
                 Text("Pot reads local Codex and Claude Code records. It keeps usage counts and your garden, never your conversations or code. No Pot account. No telemetry.")
@@ -272,7 +281,7 @@ private struct OnboardingView: View {
             default:
                 Image(systemName: "leaf.fill").font(.system(size: 50)).foregroundStyle(forest)
                 Text("Let something grow.").font(.system(size: 30, design: .serif))
-                Text("Your first plant starts small. Over the next three days, Pot will learn your rhythm. Rest days are welcome.")
+                Text("Your first plant starts as a seedling and grows a little with every day of work. A day off changes nothing; longer breaks show, and it always comes back.")
                     .foregroundStyle(.secondary).multilineTextAlignment(.center)
                 Button("Open my garden") { model.finishOnboarding() }.buttonStyle(.borderedProminent)
             }
@@ -319,7 +328,7 @@ private struct SettingsView: View {
                 Picker("Appearance", selection: $model.appearance) { Text("System").tag("system"); Text("Light").tag("light"); Text("Dark").tag("dark") }
             }
             Section("About Pot") {
-                Text("Pot 0.1.0 · A little plant on your Mac.")
+                Text("Pot \(Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "development build") · A little plant on your Mac.")
                 Text("Usage and plants stay on this Mac. Records may contain conversations; Pot keeps only usage metrics. Prices are bundled reference rates, not your bill. Unknown models remain unpriced.")
                     .font(.caption).foregroundStyle(.secondary)
                 Button("Check for updates…") {
@@ -337,6 +346,32 @@ private struct SettingsView: View {
             Button("Delete all Pot data", role: .destructive) { model.eraseData() }
             Button("Cancel", role: .cancel) {}
         } message: { Text("This removes Pot’s usage history, plants and preferences. Agent logs are untouched. Reimporting logs starts a new garden; records already removed by your agents cannot be recovered.") }
+    }
+}
+
+/// One calm line about the plant: how it's growing, or how long it has been without work.
+enum PlantStatus {
+    static func describe(_ plant: PlantState, lastActivity: Date?, now: Date = Date()) -> String {
+        let species = PlantSpecies.of(seed: plant.seed)
+        let name = species == .copihue ? "\(species.title(for: plant.provider)) · rare" : species.title(for: plant.provider)
+        let idleDays = lastActivity.map { max(0, now.timeIntervalSince($0) / 86400) } ?? 0
+        if plant.health < 0.97 {
+            if idleDays < 1 { return "\(name) · recovering" }
+            let days = Int(idleDays)
+            let away = days == 1 ? "1 day without work" : "\(days) days without work"
+            if plant.health > 0.75 { return "\(name) · a little thirsty · \(away)" }
+            if plant.health > 0.4 { return "\(name) · wilting · \(away)" }
+            return "\(name) · dry · a week of work brings it back"
+        }
+        let form = PlantFormBuilder.build(plant)
+        let stage: String
+        switch form.growth {
+        case ..<0.04: stage = "a new seedling"
+        case ..<0.3: stage = "growing"
+        case ..<1: stage = form.flowers.contains { $0.openness >= 0.6 } ? "in bloom" : "budding"
+        default: stage = "fully grown"
+        }
+        return "\(name) · \(stage)"
     }
 }
 
@@ -383,6 +418,8 @@ private struct AccountLine: View {
 private struct GardenGrid: View {
     @ObservedObject var model: AppModel
     @State private var hovered: String?
+    /// One shared crop height so cards in a row line up; follows the tallest plant.
+    private var gridHeight: Double { model.snapshots.map { PlantLayout.cropHeight($0.plant, minimum: 190) }.max() ?? 190 }
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     var body: some View {
         ScrollView {
@@ -396,8 +433,8 @@ private struct GardenGrid: View {
                         }
                     } label: {
                         VStack(spacing: 4) {
-                            PlantView(plant: snap.plant, active: model.mainVisible && recentlyActive(snap), idle: model.mainVisible)
-                                .frame(width: 150, height: 176)
+                            PlantView(plant: snap.plant, active: model.mainVisible && recentlyActive(snap), idle: model.mainVisible, crop: true)
+                                .frame(width: 140, height: gridHeight * 140 / 320)
                             Text(snap.profile.provider.displayName).font(.system(size: 17, weight: .medium, design: .serif))
                             Text(snap.profile.alias).font(.caption).foregroundStyle(.secondary).lineLimit(1)
                             Text("\((snap.periods[.today]?.tokens ?? 0).formatted(.number.notation(.compactName))) tokens today")
