@@ -16,3 +16,10 @@
 
 .variations{margin-top:28px;display:flex;flex-direction:column;gap:18px}.variation-row{display:grid;grid-template-columns:110px repeat(4,1fr);align-items:end;gap:10px}.variation-agent{font-size:.8rem;font-weight:500;color:var(--ink);align-self:center}.variations figure{margin:0;text-align:center}.variations .plant{width:100%;max-width:150px;margin:0 auto}.variations figcaption{font-size:.75rem;color:var(--ink);margin-top:4px}.variations figcaption span{display:block;color:var(--body);font-size:.72rem}
 @media(max-width:760px){.variation-row{grid-template-columns:repeat(4,1fr)}.variation-agent{grid-column:1/-1;text-align:center}.variations figcaption{font-size:.7rem}}
+
+/* Hero: label and both agents on one row */
+p.works-with{display:flex;flex-wrap:wrap;align-items:center;gap:9px;margin-top:30px;font-size:.85rem;color:var(--ink)}p.works-with .works-label{font-size:.8rem;color:var(--body)}p.works-with .agent{display:inline-flex;align-items:center;gap:7px;font-weight:500}p.works-with .separator{margin:0 4px}
+@media(max-width:760px){p.works-with{justify-content:center}}
+/* Download counter */
+.download-counter{display:flex;flex-wrap:wrap;align-items:center;gap:7px;margin-top:14px;font-size:.85rem;color:var(--body);min-height:1.5em}.download-counter strong{color:var(--ink);font-weight:600;font-variant-numeric:tabular-nums}.counter-sprout{width:16px;height:16px;color:#7f975f;flex:none}.counter-stale,.counter-trees{color:var(--body)}.download-counter.is-loading{opacity:0}.download-note{margin-top:6px}.download-note .availability{display:inline}
+@media(max-width:760px){.download-counter{justify-content:center}}

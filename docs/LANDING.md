@@ -44,3 +44,9 @@ Ready for ordinary Vercel Next.js hosting by selecting `landing` as the project 
 - Native macOS app verification is independent of these website checks.
 
 Browser QA remains unverified: managed `sites-preview` reached a relay failure (`relay could not open browser port 4173: timed out waiting for relay readiness`). Preview status returned stopped. No alternate server or browser-routing bypass was used. Responsive layout, dark mode and interactions have not yet been visually checked in a browser.
+
+## Download counter and the tree idea (2026-11-26)
+
+Under each download button the site shows the real number of installer downloads from public GitHub Releases (only `Pot-<version>-macOS-<arch>.dmg` assets of stable releases; see `lib/releases.ts`). Before the first release it says "The counter starts with the first release" instead of showing a number. The tooltip explains it counts files, not people.
+
+`lib/trees.ts` holds the future "every N downloads we plant a tree" idea: set `TREE_EVERY` (for example `1000`) and the counter adds "· N trees planted · next in M". It stays hidden at `0`, so nothing is promised before a planting partner exists.

@@ -27,7 +27,7 @@ export default function Home() {
           <h1 id="hero-title">A little plant<br/>on your <em>Mac.</em></h1>
           <p className="hero-description">You code. It grows.<br/>A small, living reminder of the things you make.</p>
           <Download/>
-          <div className="works-with"><span>Made for your coding companions</span><p><span className="agent-mark codex-mark" aria-hidden="true">✳</span> Codex <span className="separator" aria-hidden="true"/><span className="agent-mark claude-mark" aria-hidden="true">✴</span> Claude Code</p></div>
+          <p className="works-with"><span className="works-label">Made for your coding companions</span><span className="separator" aria-hidden="true"/><span className="agent"><span className="agent-mark codex-mark" aria-hidden="true">✳</span> Codex</span><span className="separator" aria-hidden="true"/><span className="agent"><span className="agent-mark claude-mark" aria-hidden="true">✴</span> Claude Code</span></p>
         </div>
         <div className="hero-garden" aria-label="Illustration of the two plant families">
           <div className="garden-disc"/>
