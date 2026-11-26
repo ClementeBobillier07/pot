@@ -6,6 +6,11 @@ import PotCore
 
 extension Notification.Name { static let potResetPosition = Notification.Name("Pot.resetFloatingPosition") }
 
+/// The panel never becomes key, so every click is a "first mouse" click; accept them.
+private final class FirstMouseHostingView<Content: View>: NSHostingView<Content> {
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
+}
+
 private final class PlantPanel: NSPanel {
     override var canBecomeKey: Bool { false }
     override var canBecomeMain: Bool { false }
@@ -35,7 +40,7 @@ final class FloatingPlantController {
         panel.level = .floating; panel.hidesOnDeactivate = false
         panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .stationary, .ignoresCycle]
         panel.isMovableByWindowBackground = false; panel.isReleasedWhenClosed = false
-        panel.contentView = NSHostingView(rootView: FloatingPlantView(model: model, interaction: interaction, moved: { [weak self] in self?.savePosition() }))
+        panel.contentView = FirstMouseHostingView(rootView: FloatingPlantView(model: model, interaction: interaction, moved: { [weak self] in self?.savePosition() }))
         subscription = model.objectWillChange.sink { [weak self] in
             DispatchQueue.main.async { self?.update() }
         }
@@ -162,19 +167,31 @@ private struct FloatingPlantView: View {
                     .frame(width: model.plantSize, height: model.plantSize * 1.25)
                     .id(selected.profile.id)
                     .transition(reduceMotion ? .opacity : PlantSwitch.transition(direction: model.navigationDirection))
-                    .overlay(PlantDragSurface(clicked: { model.showGrid = false; model.showSettings = false; model.openMain?() }, moved: moved,
-                                              navigate: { model.navigate($0) }))
                     .accessibilityAction { model.openMain?() }
                     .padding(.horizontal, 16).padding(.top, 4)
                     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
                 // Only control on the desktop: a close button just above the plant's top-right edge.
                 // Plants are switched inside Pot, not from the floating plant.
+                // Drawn by SwiftUI; clicks are resolved by the AppKit surface below (a SwiftUI button in a
+                // never-key panel lost its clicks). VoiceOver can still press it.
                 CloseBadge { model.hideFloating() }
                     .position(closeCenter(selected.plant))
-                    .opacity(interaction.hovered ? 1 : 0).allowsHitTesting(interaction.hovered)
+                    .opacity(interaction.hovered ? 1 : 0).allowsHitTesting(false)
             }
         }
         .frame(width: model.plantSize + 32, height: model.plantSize * 1.25 + 8)
+        // One AppKit surface over the whole panel decides: close button → hide, plant → open Pot,
+        // movement → drag, two-finger swipe → switch plant.
+        .overlay(PlantDragSurface(
+            clicked: { point in
+                if let selected = model.selected, interaction.hovered,
+                   hypot(point.x - closeCenter(selected.plant).x, point.y - closeCenter(selected.plant).y) <= 16 {
+                    model.hideFloating()
+                } else {
+                    model.showGrid = false; model.showSettings = false; model.openMain?()
+                }
+            },
+            moved: moved, navigate: { model.navigate($0) }))
         .buttonStyle(.plain)
         .animation(reduceMotion ? nil : .easeInOut(duration: 0.18), value: interaction.hovered)
         .animation(reduceMotion ? nil : .easeInOut(duration: 0.28), value: model.selectedID)
@@ -214,20 +231,21 @@ private struct CloseBadge: View {
 }
 
 private struct PlantDragSurface: NSViewRepresentable {
-    let clicked: () -> Void
+    /// Receives the click location in SwiftUI coordinates (origin top-left).
+    let clicked: (CGPoint) -> Void
     let moved: () -> Void
     let navigate: (Int) -> Void
     func makeNSView(context: Context) -> DragSurfaceView { DragSurfaceView(clicked: clicked, moved: moved, navigate: navigate) }
     func updateNSView(_ view: DragSurfaceView, context: Context) { view.clicked = clicked; view.moved = moved; view.navigate = navigate }
 }
 private final class DragSurfaceView: NSView {
-    var clicked: () -> Void
+    var clicked: (CGPoint) -> Void
     var moved: () -> Void
     var navigate: (Int) -> Void
     private var startMouse = NSPoint.zero
     private var startOrigin = NSPoint.zero
     private var dragged = false
-    init(clicked: @escaping () -> Void, moved: @escaping () -> Void, navigate: @escaping (Int) -> Void) {
+    init(clicked: @escaping (CGPoint) -> Void, moved: @escaping () -> Void, navigate: @escaping (Int) -> Void) {
         self.clicked = clicked; self.moved = moved; self.navigate = navigate; super.init(frame: .zero)
         setAccessibilityElement(false)
     }
@@ -240,7 +258,11 @@ private final class DragSurfaceView: NSView {
         if hypot(dx, dy) >= 4 { dragged = true }
         if dragged { window?.setFrameOrigin(NSPoint(x: startOrigin.x + dx, y: startOrigin.y + dy)) }
     }
-    override func mouseUp(with event: NSEvent) { if dragged { moved() } else { clicked() } }
+    override func mouseUp(with event: NSEvent) {
+        if dragged { moved(); return }
+        let p = convert(event.locationInWindow, from: nil)
+        clicked(CGPoint(x: p.x, y: isFlipped ? p.y : bounds.height - p.y))
+    }
     /// Two-finger horizontal swipe over the plant switches plants, like in the Pot window.
     /// One switch per gesture: momentum is ignored and a short cooldown prevents skipping plants.
     override func scrollWheel(with event: NSEvent) {
