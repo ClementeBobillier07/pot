@@ -35,6 +35,8 @@ For each run record hardware, CPU architecture, macOS version, Xcode/Swift versi
 ## Floating NSPanel
 
 - Exactly one plant, transparent with no card, shadow, title or visible background in light/dark mode.
+- Two-finger horizontal swipe over the floating plant switches to the next/previous plant once per gesture, with a soft fade; the main window follows the same selection.
+- Window: arrows beside the plant name and page dots switch plants; the grid button (⌘G) shows every plant gently swaying; clicking a card opens it. Settings → Connected agents shows each signed-in email, method and plan.
 - Hover shows only the close button (black ✕ in a white circle with black outline) just above the plant's top-right edge; leaving the plant fades it. Clicking it never opens the main app. There are no arrows on the desktop; plants are switched inside Pot.
 - A plant click opens the main window with the corresponding account. A drag changes position without opening the window; position survives restart.
 - The panel appearing, hovering or dragging must not steal focus from the active application. Test typing into another application while activity begins.

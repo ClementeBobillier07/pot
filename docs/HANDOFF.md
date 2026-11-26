@@ -68,6 +68,7 @@ Para reiniciar el estado de desarrollo: `rm -rf ~/Library/Application\ Support/P
 ## Lo que falta (en orden)
 
 1. **QA interactiva en el Mac** (`docs/MAC_QA.md`). Nunca se probó con clics reales:
+   - Deslizar con dos dedos sobre la planta flotante cambia de planta (una por gesto). En la ventana: flechas junto al nombre, puntos de página, cuadrícula del jardín (⌘G) con movimiento sutil, y en Ajustes las cuentas conectadas (email, método y plan).
    - Hover: que aparezca la X (círculo blanco con borde negro, arriba a la derecha de la planta) y que pulsarla oculte la planta sin abrir la app. En el escritorio no hay flechas: las plantas se cambian dentro de Pot.
    - Clic en la planta: abre la app con ese perfil.
    - Arrastre y posición guardada.

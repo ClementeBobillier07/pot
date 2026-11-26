@@ -105,6 +105,12 @@ private final class GardenWorker: @unchecked Sendable {
                 coverage: coverage[profile.provider] ?? "No source available · health protected", priceReference: catalog.verifiedAt,
                 periods: periods, historyStart: range.first, recordCount: range.count, lastRead: now, paused: paused)
         }
+        // Stable garden order: provider, then plants with account evidence, then alias.
+        .sorted { a, b in
+            let ka = (Provider.allCases.firstIndex(of: a.profile.provider) ?? 0, a.profile.id.hasPrefix("local:") ? 1 : 0, a.profile.alias.lowercased())
+            let kb = (Provider.allCases.firstIndex(of: b.profile.provider) ?? 0, b.profile.id.hasPrefix("local:") ? 1 : 0, b.profile.alias.lowercased())
+            return ka < kb
+        }
     }
 
     func eraseAll() throws {
@@ -129,6 +135,8 @@ final class AppModel: ObservableObject {
     @Published var enabledProviders = Set(Provider.allCases.filter { !UserDefaults.standard.bool(forKey: "disabled.\($0.rawValue)") })
     @Published var message: String?
     @Published var showSettings = false
+    /// Overview of every plant instead of one plant's details.
+    @Published var showGrid = false
     @Published var mainVisible = false
     @Published var onboardingStep = 0
     @Published var onboarded = UserDefaults.standard.bool(forKey: "onboarded")
@@ -185,7 +193,9 @@ final class AppModel: ObservableObject {
     private func applyAppearance() {
         NSApp.appearance = appearance == "dark" ? NSAppearance(named: .darkAqua) : appearance == "light" ? NSAppearance(named: .aqua) : nil
     }
-    func refreshDetection(includeAccountDetails: Bool = false) {
+    /// Account details come from the agents' own status commands (Codex: `app-server account/read`
+    /// with refreshToken false). Pot never reads credentials; this is display-only.
+    func refreshDetection(includeAccountDetails: Bool = true) {
         guard !busy else { return }
         busy = true; message = nil
         queue.async { [weak self] in
@@ -324,7 +334,9 @@ final class AppModel: ObservableObject {
     }
     func hideFloating() { policy.hide(); updateFloating() }
     private func updateFloating() {
-        floatingVisible = onboarded && policy.visible(lastActivity: selected?.lastActivity, now: Date(), hasPlant: selected != nil)
+        // "While I work" follows any agent's activity, so switching to a quiet plant keeps it on screen.
+        // Only the plant whose agent is working dances (PlantView `active`).
+        floatingVisible = onboarded && policy.visible(lastActivity: snapshots.compactMap(\.lastActivity).max(), now: Date(), hasPlant: selected != nil)
         floatingManuallyHidden = policy.manuallyHidden
     }
     func setLaunchAtLogin(_ enabled: Bool) {

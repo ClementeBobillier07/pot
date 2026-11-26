@@ -55,6 +55,8 @@ final class PotDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         if !model.onboarded { openMain() } else { model.refreshDetection() }
         // Development/QA convenience: `swift run Pot --show-window` opens the garden directly.
         if CommandLine.arguments.contains("--show-window") { openMain() }
+        if CommandLine.arguments.contains("--show-grid") { model.showGrid = true; openMain() }
+        if CommandLine.arguments.contains("--show-settings") { model.showSettings = true; openMain() }
     }
 
     func openMain() {

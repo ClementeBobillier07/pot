@@ -84,6 +84,9 @@ enum PlantLayout {
 struct PlantView: View {
     let plant: PlantState
     var active = false
+    /// Gentle continuous breathing while a window shows the plant. Off for the always-on
+    /// floating panel to keep idle energy near zero; activity pulses still apply there.
+    var idle = false
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var dancing = false
     @State private var oldSizes: [String: Double] = [:]
@@ -91,9 +94,9 @@ struct PlantView: View {
     @State private var blend = 1.0
 
     var body: some View {
-        TimelineView(.animation(minimumInterval: 1.0 / 24, paused: !dancing || reduceMotion)) { timeline in
+        TimelineView(.animation(minimumInterval: dancing ? 1.0 / 24 : 1.0 / 15, paused: !(dancing || idle) || reduceMotion)) { timeline in
             PlantDrawing(plant: plant, oldSizes: oldSizes, oldMaturation: oldMaturation, blend: blend,
-                         sway: dancing && !reduceMotion ? sin(timeline.date.timeIntervalSinceReferenceDate * 3.8) * 0.018 : 0)
+                         sway: reduceMotion ? 0 : sway(at: timeline.date.timeIntervalSinceReferenceDate))
         }
         .onAppear { if active { pulse() } }
         .onChange(of: active) { _, value in if value { pulse() } else { dancing = false } }
@@ -113,6 +116,14 @@ struct PlantView: View {
         .accessibilityElement(children: .ignore)
         .accessibilityLabel("\(plant.provider.displayName) plant")
         .accessibilityValue(plant.health > 0.65 ? "Growing peacefully" : "Resting. Ready to recover when you return.")
+    }
+    /// Activity dance, or a slow breeze unique to each plant (phase and tempo from its seed).
+    private func sway(at t: Double) -> Double {
+        if dancing { return sin(t * 3.8) * 0.018 }
+        guard idle else { return 0 }
+        let phase = Double(plant.seed % 997) / 997 * 2 * .pi
+        let tempo = 0.9 + Double(plant.seed % 7) * 0.05
+        return sin(t * tempo + phase) * 0.006 + sin(t * tempo * 2.3 + phase) * 0.0025
     }
     private func pulse() {
         guard !reduceMotion else { return }

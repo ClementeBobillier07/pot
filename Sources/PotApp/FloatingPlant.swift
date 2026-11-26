@@ -177,7 +177,10 @@ private struct FloatingPlantView: View {
             if let selected = model.selected {
                 PlantView(plant: selected.plant, active: model.floatingVisible && recentlyActive(selected))
                     .frame(width: model.plantSize, height: model.plantSize * 1.25)
-                    .overlay(PlantDragSurface(clicked: { model.openMain?() }, moved: moved))
+                    .id(selected.profile.id)
+                    .transition(reduceMotion ? .identity : .asymmetric(insertion: .opacity.combined(with: .scale(scale: 0.94, anchor: .bottom)), removal: .opacity))
+                    .overlay(PlantDragSurface(clicked: { model.showGrid = false; model.showSettings = false; model.openMain?() }, moved: moved,
+                                              navigate: { model.navigate($0) }))
                     .accessibilityAction { model.openMain?() }
                     .padding(.horizontal, 16).padding(.top, 4)
                     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
@@ -191,6 +194,7 @@ private struct FloatingPlantView: View {
         .frame(width: model.plantSize + 32, height: model.plantSize * 1.25 + 8)
         .buttonStyle(.plain)
         .animation(reduceMotion ? nil : .easeInOut(duration: 0.18), value: interaction.hovered)
+        .animation(reduceMotion ? nil : .easeInOut(duration: 0.28), value: model.selectedID)
         .preferredColorScheme(model.colorScheme)
         .background(Color.clear)
     }
@@ -229,17 +233,21 @@ private struct CloseBadge: View {
 private struct PlantDragSurface: NSViewRepresentable {
     let clicked: () -> Void
     let moved: () -> Void
-    func makeNSView(context: Context) -> DragSurfaceView { DragSurfaceView(clicked: clicked, moved: moved) }
-    func updateNSView(_ view: DragSurfaceView, context: Context) { view.clicked = clicked; view.moved = moved }
+    let navigate: (Int) -> Void
+    func makeNSView(context: Context) -> DragSurfaceView { DragSurfaceView(clicked: clicked, moved: moved, navigate: navigate) }
+    func updateNSView(_ view: DragSurfaceView, context: Context) { view.clicked = clicked; view.moved = moved; view.navigate = navigate }
 }
 private final class DragSurfaceView: NSView {
     var clicked: () -> Void
     var moved: () -> Void
+    var navigate: (Int) -> Void
+    private var scrollAccumulation = 0.0
+    private var lastNavigation = Date.distantPast
     private var startMouse = NSPoint.zero
     private var startOrigin = NSPoint.zero
     private var dragged = false
-    init(clicked: @escaping () -> Void, moved: @escaping () -> Void) {
-        self.clicked = clicked; self.moved = moved; super.init(frame: .zero)
+    init(clicked: @escaping () -> Void, moved: @escaping () -> Void, navigate: @escaping (Int) -> Void) {
+        self.clicked = clicked; self.moved = moved; self.navigate = navigate; super.init(frame: .zero)
         setAccessibilityElement(false)
     }
     required init?(coder: NSCoder) { nil }
@@ -252,5 +260,18 @@ private final class DragSurfaceView: NSView {
         if dragged { window?.setFrameOrigin(NSPoint(x: startOrigin.x + dx, y: startOrigin.y + dy)) }
     }
     override func mouseUp(with event: NSEvent) { if dragged { moved() } else { clicked() } }
+    /// Two-finger horizontal swipe over the plant switches plants, like in the Pot window.
+    /// One switch per gesture: momentum is ignored and a short cooldown prevents skipping plants.
+    override func scrollWheel(with event: NSEvent) {
+        if event.phase == .began || event.phase == .mayBegin { scrollAccumulation = 0 }
+        guard event.momentumPhase.isEmpty else { return }
+        let dx = event.scrollingDeltaX, dy = event.scrollingDeltaY
+        guard abs(dx) > abs(dy) * 1.2 else { return }
+        scrollAccumulation += event.hasPreciseScrollingDeltas ? dx : dx * 12
+        guard abs(scrollAccumulation) > 45, Date().timeIntervalSince(lastNavigation) > 0.45 else { return }
+        navigate(scrollAccumulation > 0 ? -1 : 1)
+        scrollAccumulation = 0
+        lastNavigation = Date()
+    }
 }
 #endif
