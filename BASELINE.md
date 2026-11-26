@@ -67,3 +67,7 @@ Not yet verified: hover/drag/click-through interaction, Spaces/full screen, mult
 - Plant illustration redrawn in the landing's two families (Codex eucalyptus/sage pot, Claude slender leaves/terracotta), with visible health (droop, yellowing), seven flower stages and balanced branch placement. `Pot --render-plants DIR` writes synthetic renders (days 0–365, rest, floating light/dark) without touching user data.
 - (Pause the garden was added and later removed, decision 25.) Periods Today / 7 days / 30 days / All, coverage ("Data since … · N calls · read …"), local JSON export without identifiers, onboarding/Settings corner choice, menu bar Presentation submenu.
 - CI workflow (Swift on macOS, landing on Linux), beta kit (docs/BETA.md, issue template), release checklist (docs/RELEASE.md).
+
+## First signed and notarized build (2026-11-26)
+
+`artifacts/Pot-0.1.0-macOS-universal.dmg` (not committed; build output). Universal (arm64 + x86_64), bundle ID `com.agentpots.pot`, signed with Developer ID Application (team X7NK42H74M), hardened runtime, app and DMG notarized by Apple (status Accepted) and stapled. Verified as a quarantined download: `spctl` reports "accepted · source=Notarized Developer ID" for both the DMG and the app inside it. SHA-256 `1cf6f3963474a87ed124146fc43ca70819cb38b54271a29fc07460f797bf4ec3`. Not yet published. Intel execution still untested on real Intel hardware.
