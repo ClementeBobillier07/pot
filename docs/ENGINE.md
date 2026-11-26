@@ -1,4 +1,20 @@
-# Procedural plant engine (v2, 2026-11-26)
+# Procedural plant engine (v3, 2026-11-26)
+
+## Botanical variants and steady growth (engine 3, current)
+
+Drawn after the owner's references ("Pot — growth & recovery", "Botanical variation 02/03", "The copihue").
+
+- **Variant at birth, by seed:** variation 01 (40 %), variation 02 (35 %), variation 03 (24 %), copihue (1 %). Codex plants live in a sage planter, Claude Code plants in a terracotta pot.
+  - Codex: 01 oval leaves with small white/pink/yellow/lilac flowers; 02 round leaves with roses, daisies and lilac stars; 03 broad leaves with camellias, navy and burgundy blooms and small yellow stars.
+  - Claude Code: 01 lance leaves with orange/peach/lilac stars; 02 long leaves with orange daisies, lilac stars and white bells; 03 slender leaves with orange/yellow/burgundy daisies.
+  - Copihue: a wooden stake from day 1, a sprout until ~day 14, the vine from ~day 14–30, buds from ~day 30, first bell ~day 45, up to four bells by day 90 (white with red rim for Codex, red for Claude Code).
+- **Steady growth.** `PlantState.growth` adds each day's energy × vigor. Growth progress = growth ÷ 90, so one reference day of use per day gives a full plant at day 90: seedling (days 1–3), first leaves (7), small plant (14), bush (30), first flowers (≈45), lush (60), full (90). Heavier days get there sooner (up to 3× faster) and light days much later. Once full, flowers keep renewing on a staggered 14-day cycle.
+- **Drawing is derived, not stored.** `PlantFormBuilder` turns seed + growth + health into stems, leaves, flowers and fallen leaves. Every leaf and flower has its own stable random stream, so nothing jumps between days. The engine's organ graph (below) still runs but no longer drives the picture.
+- **Wilting at half the reference timeline:** nothing for the first idle day, then health ≈ 0.85 at 1.5 days (leaves soften), 0.65 at 3.5 days (droop, paler, flowers hang), 0.40 at 7 days (yellow, flowers wither, leaves start falling) and 0.15 at 15 days (dry brown stems, dried pods, leaves on the ground). Never dead.
+- **Return (slower, owner 2026-11-26):** recovery is +0.15 health per day of use (up to +0.21 on fuller days), twice as slow as before: fresh green leaves come back first among dry remnants ("1 day back"), the plant is still visibly tired at 3.5 days, flowers return above ≈ 0.72 health and it is fully back after ≈ 5–6 days of typical use.
+- `Pot --render-plants DIR` writes one sheet per variant (Codex and Claude Code growth by day, rest & return), from synthetic usage.
+
+## Engine 2 (superseded in part)
 
 ## Growth and wilting (engine 2, current)
 

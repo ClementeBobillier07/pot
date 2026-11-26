@@ -138,28 +138,8 @@ final class FloatingPlantController {
         panel.ignoresMouseEvents = !hit
     }
     /// Transparent blank space passes through until the pointer enters the plant silhouette.
-    private func plantContains(_ rawPoint: CGPoint, plant: PlantState) -> Bool {
-        if CGRect(x: 95, y: 308, width: 130, height: 85).contains(rawPoint) { return true }
-        // Mature plants are drawn slightly zoomed out around the pot; undo that before testing organs.
-        let scale = PlantLayout.fitScale(plant), a = PlantLayout.anchor
-        let point = scale < 1 ? CGPoint(x: a.x + (rawPoint.x - a.x) / scale, y: a.y + (rawPoint.y - a.y) / scale) : rawPoint
-        for organ in plant.organs {
-            let start = CGPoint(x: organ.x * 320, y: organ.y * 400)
-            if organ.kind == .stem || organ.kind == .branch {
-                let end = CGPoint(x: organ.endpoint.x * 320, y: organ.endpoint.y * 400)
-                let dx = end.x - start.x, dy = end.y - start.y
-                let length = max(1, dx * dx + dy * dy)
-                let t = max(0, min(1, ((point.x - start.x) * dx + (point.y - start.y) * dy) / length))
-                if hypot(point.x - start.x - t * dx, point.y - start.y - t * dy) < 8 { return true }
-            } else if organ.kind == .leaf {
-                let dx = point.x - start.x, dy = point.y - start.y
-                let cosA = cos(organ.orientation), sinA = sin(organ.orientation)
-                let x = dx * cosA + dy * sinA, y = -dx * sinA + dy * cosA
-                let length = 9 + organ.size * 5.5, width = length * (plant.provider == .codex ? 0.62 : 0.38)
-                if pow(x / max(8, width), 2) + pow((y + length / 2) / (length / 2 + 4), 2) <= 1 { return true }
-            } else if hypot(point.x - start.x, point.y - start.y) < 10 + organ.size * 2 { return true }
-        }
-        return false
+    private func plantContains(_ point: CGPoint, plant: PlantState) -> Bool {
+        PlantLayout.contains(point, plant: plant)
     }
     deinit {
         pointerTimer?.invalidate()

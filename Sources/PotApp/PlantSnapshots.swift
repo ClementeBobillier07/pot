@@ -14,39 +14,40 @@ enum PlantSnapshots {
         let output = URL(fileURLWithPath: directory, isDirectory: true)
         do {
             try FileManager.default.createDirectory(at: output, withIntermediateDirectories: true)
-            // Rows: usage rhythms on weekdays (weekends off) and one plant left idle after a month.
-            let rows: [(title: String, samples: [Sample])] = [
-                ("Light · 1.5 M work/day", growth(work: 1_500_000, provider: .codex)),
-                ("Typical · 10 M work/day", growth(work: 10_000_000, provider: .claude)),
-                ("Heavy · 40 M work/day", growth(work: 40_000_000, provider: .claude)),
-                ("Idle after 30 typical days", wilting()),
-            ]
-            for row in rows { for sample in row.samples {
-                try write(PlantView(plant: sample.plant).frame(width: 290, height: 300), name: "synthetic-\(sample.name).png", in: output)
-            } }
-            if let mature = rows[2].samples.last {
-                for (scheme, background) in [("light", Color(white: 0.93)), ("dark", Color(white: 0.12))] {
-                    try write(PlantView(plant: mature.plant).frame(width: 180, height: 225).padding(16).background(background),
-                              name: "synthetic-floating-\(scheme).png", in: output)
+            // One sheet per botanical variant, laid out like the owner's references:
+            // growth at one reference day per day, then rest & return (half the reference times).
+            for species in PlantSpecies.allCases {
+                var rows: [(title: String, samples: [Sample])] = []
+                for provider in Provider.allCases {
+                    let seed = seed(for: species, salt: provider == .codex ? 1 : 2)
+                    let name = "\(provider.displayName) · \(species.title(for: provider))"
+                    rows.append((name, growth(seed: seed, provider: provider)))
+                    rows.append(("\(name) · rest & return", restAndReturn(seed: seed, provider: provider)))
                 }
-            }
-            let sheet = VStack(alignment: .leading, spacing: 10) {
-                Text("SYNTHETIC PLANTS · simulated usage, not real data · engine \(PlantEngine.version)").font(.system(size: 13, weight: .semibold))
-                ForEach(rows, id: \.title) { row in
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text(row.title).font(.system(size: 12, weight: .medium))
-                        HStack(spacing: 4) {
-                            ForEach(row.samples, id: \.name) { sample in
-                                VStack(spacing: 1) {
-                                    PlantView(plant: sample.plant).frame(width: 170, height: 196)
-                                    Text(sample.caption).font(.system(size: 10)).foregroundStyle(.secondary)
+                let sheet = VStack(alignment: .leading, spacing: 6) {
+                    Text("SYNTHETIC · \(species.title(for: .codex).uppercased()) · simulated reference days, not real data").font(.system(size: 13, weight: .semibold))
+                    ForEach(rows, id: \.title) { row in
+                        VStack(alignment: .leading, spacing: 0) {
+                            Text(row.title).font(.system(size: 11, weight: .medium))
+                            HStack(spacing: 0) {
+                                ForEach(row.samples, id: \.name) { sample in
+                                    VStack(spacing: 0) {
+                                        PlantView(plant: sample.plant).frame(width: 128, height: 160)
+                                        Text(sample.caption).font(.system(size: 10)).foregroundStyle(.secondary)
+                                    }
                                 }
                             }
                         }
                     }
+                }.padding(14).background(Color(white: 0.97))
+                try write(sheet, name: "synthetic-\(species.rawValue).png", in: output)
+                if species == .classic, let full = rows[0].samples.last {
+                    for (scheme, background) in [("light", Color(white: 0.93)), ("dark", Color(white: 0.12))] {
+                        try write(PlantView(plant: full.plant).frame(width: 180, height: 225).padding(16).background(background),
+                                  name: "synthetic-floating-\(scheme).png", in: output)
+                    }
                 }
-            }.padding(14).background(Color(white: 0.93))
-            try write(sheet, name: "synthetic-contact-sheet.png", in: output)
+            }
             print("Wrote synthetic plant renders to \(output.path)")
             exit(0)
         } catch {
@@ -55,38 +56,46 @@ enum PlantSnapshots {
         }
     }
 
-    private static let start = Date(timeIntervalSince1970: 1_767_225_600) // 2026-01-01 UTC (Thursday), fixed
-    private static func usage(_ provider: Provider, day: Int, work: Int64) -> UsageEvent {
-        UsageEvent(id: "SYNTHETIC-\(provider.rawValue)-\(work)-\(day)", provider: provider,
-                   timestamp: start.addingTimeInterval(Double(day) * 86400 + 10 * 3600), model: "SYNTHETIC", input: work, output: 0)
-    }
-    private static func isWeekday(_ day: Int) -> Bool { ![2, 3].contains(day % 7) } // day 0 is a Thursday
+    private static let start = Date(timeIntervalSince1970: 1_767_225_600) // 2026-01-01 UTC, fixed
 
-    /// Same seed, different rhythm; snapshots at midday so weekend dips show honestly.
-    private static func growth(work: Int64, provider: Provider) -> [Sample] {
-        var plant = PlantState(seed: 20_261_125, provider: provider, createdAt: start)
-        let events = (0..<90).filter(isWeekday).map { usage(provider, day: $0, work: work) }
-        var samples: [Sample] = []
-        for day in [3, 7, 14, 30, 60, 90] {
-            PlantEngine.advance(state: &plant, events: events, now: start.addingTimeInterval(Double(day) * 86400 + 12 * 3600))
-            samples.append(Sample(name: "w\(work / 1_000_000)M-day\(day)", caption: "day \(day)", plant: plant))
-        }
-        return samples
+    private static func seed(for species: PlantSpecies, salt: UInt64) -> UInt64 {
+        var seed: UInt64 = 20_261_126 &* salt
+        while PlantSpecies.of(seed: seed) != species { seed &+= 1 }
+        return seed
     }
-
-    /// A month of typical use every day, then no use at all, then three typical days back.
-    private static func wilting() -> [Sample] {
-        var plant = PlantState(seed: 7_777, provider: .codex, createdAt: start)
-        var events = (0..<30).map { usage(.codex, day: $0, work: 10_000_000) }
-        let lastUse = start.addingTimeInterval(29 * 86400 + 10 * 3600)
-        var samples: [Sample] = []
-        for idle in [0, 1, 2, 3, 4, 7] {
-            PlantEngine.advance(state: &plant, events: events, now: lastUse.addingTimeInterval(Double(idle) * 86400 + 3600))
-            samples.append(Sample(name: "idle\(idle)", caption: idle == 0 ? "in use" : "\(idle) day\(idle == 1 ? "" : "s") idle · health \(String(format: "%.2f", plant.health))", plant: plant))
+    /// One reference day (energy 1) of use every day.
+    private static func usage(_ provider: Provider, days: Range<Int>) -> [UsageEvent] {
+        days.map { day in
+            UsageEvent(id: "SYNTHETIC-\(provider.rawValue)-\(day)", provider: provider,
+                       timestamp: start.addingTimeInterval(Double(day) * 86400 + 10 * 3600), model: "SYNTHETIC",
+                       input: Int64(PlantEngine.referenceDailyWork), output: 0)
         }
-        events += (37..<40).map { usage(.codex, day: $0, work: 10_000_000) }
-        PlantEngine.advance(state: &plant, events: events, now: start.addingTimeInterval(40 * 86400 + 3600))
-        samples.append(Sample(name: "back3", caption: "3 days back · health \(String(format: "%.2f", plant.health))", plant: plant))
+    }
+    private static func growth(seed: UInt64, provider: Provider) -> [Sample] {
+        var plant = PlantState(seed: seed, provider: provider, createdAt: start)
+        let events = usage(provider, days: 0..<90)
+        return [1, 3, 7, 14, 30, 45, 60, 90].map { day in
+            PlantEngine.advance(state: &plant, events: events, now: start.addingTimeInterval(Double(day) * 86400 + 11 * 3600))
+            return Sample(name: "day\(day)", caption: "Day \(day)", plant: plant)
+        }
+    }
+    private static func restAndReturn(seed: UInt64, provider: Provider) -> [Sample] {
+        var plant = PlantState(seed: seed, provider: provider, createdAt: start)
+        var events = usage(provider, days: 0..<90)
+        let lastUse = start.addingTimeInterval(89 * 86400 + 10 * 3600)
+        var samples: [Sample] = []
+        // The app updates continuously; advance day by day so all 90 days count as growth.
+        for day in 1..<90 { PlantEngine.advance(state: &plant, events: events, now: start.addingTimeInterval(Double(day) * 86400)) }
+        for (away, label) in [(0.0, "Active"), (1.5, "1.5 days away"), (3.5, "3.5 days away"), (7, "7 days away"), (15, "15 days away")] {
+            PlantEngine.advance(state: &plant, events: events, now: lastUse.addingTimeInterval(away * 86400 + 3600))
+            samples.append(Sample(name: "away\(away)", caption: label, plant: plant))
+        }
+        let back = 89 + 15
+        events += usage(provider, days: back..<(back + 8))
+        for (days, label) in [(1.0, "1 day back"), (3.5, "3.5 days back"), (7, "7 days back")] {
+            PlantEngine.advance(state: &plant, events: events, now: start.addingTimeInterval((Double(back) + days) * 86400 + 3600))
+            samples.append(Sample(name: "back\(days)", caption: label, plant: plant))
+        }
         return samples
     }
 
