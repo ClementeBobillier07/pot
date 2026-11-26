@@ -11,6 +11,10 @@ struct MainView: View {
     @State private var dollars = false
     @State private var selectedDate: Date?
     @State private var period: UsagePeriod = .today
+    /// 0 = this week, 1 = last week, …
+    @State private var weekOffset = 0
+    /// Chart selection by day key (yyyy-MM-dd); categorical so all seven labels always show.
+    @State private var selectedKey: String?
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     var body: some View {
         VStack(spacing: 0) {
@@ -62,7 +66,7 @@ struct MainView: View {
         .background(TrackpadNavigation {
             if model.onboarded && !model.showSettings && !model.showGrid { navigate($0) }
         })
-        .onChange(of: model.selectedID) { _, _ in selectedDate = nil }
+        .onChange(of: model.selectedID) { _, _ in selectedDate = nil; selectedKey = nil; weekOffset = 0 }
         .onMoveCommand { direction in
             guard model.onboarded, !model.showSettings else { return }
             guard !model.showGrid else { return }
@@ -87,7 +91,9 @@ struct MainView: View {
     }
 
     private func accountView(_ account: AccountSnapshot) -> some View {
-        let selected = selectedDate.flatMap { date in account.days.first { Calendar.current.isDate($0.date, inSameDayAs: date) } }
+        let week = account.weeks.indices.contains(weekOffset) ? account.weeks[weekOffset] : account.days
+        let today = Calendar.current.startOfDay(for: Date())
+        let selected = selectedDate.flatMap { date in week.first { Calendar.current.isDate($0.date, inSameDayAs: date) && $0.date <= today } }
         let summary = account.periods[period]
         let headlineTokens = selected?.tokens ?? summary?.tokens
         let headlineUSD = selected.map { $0.estimatedUSD } ?? summary?.estimatedUSD
@@ -140,31 +146,57 @@ struct MainView: View {
                 .help("Reference API prices for the same tokens. Not your bill or subscription usage.")
             }.padding(.top, 18)
             VStack(spacing: 10) {
-                HStack {
-                    Text("Last 7 days").font(.callout)
+                HStack(spacing: 6) {
+                    Button { weekOffset += 1; selectedDate = nil; selectedKey = nil } label: { Image(systemName: "chevron.left") }
+                        .buttonStyle(.plain).foregroundStyle(.secondary).disabled(weekOffset >= account.weeks.count - 1)
+                        .accessibilityLabel("Previous week")
+                    Text(weekTitle(week)).font(.callout).monospacedDigit().frame(minWidth: 112)
+                    Button { weekOffset -= 1; selectedDate = nil; selectedKey = nil } label: { Image(systemName: "chevron.right") }
+                        .buttonStyle(.plain).foregroundStyle(.secondary).disabled(weekOffset == 0)
+                        .accessibilityLabel("Next week")
                     Spacer()
                     Picker("Chart unit", selection: $dollars) {
                         Text("Tokens").tag(false); Text("USD").tag(true)
                     }.pickerStyle(.segmented).labelsHidden().frame(width: 132)
                 }
-                Chart(account.days, id: \.date) { day in
-                    BarMark(x: .value("Day", day.date, unit: .day), y: .value(dollars ? "Estimated USD" : "Tokens", chartValue(day)), width: .ratio(0.55))
-                        .foregroundStyle(selectedDate.map { Calendar.current.isDate($0, inSameDayAs: day.date) } == true ? forest : forest.opacity(0.45))
+                let peak = max(1, week.map(chartValue).max() ?? 1)
+                Chart(week, id: \.date) { day in
+                    let key = Self.dayKey(day.date)
+                    let isToday = Calendar.current.isDate(day.date, inSameDayAs: today)
+                    let isFuture = day.date > today
+                    let isSelected = selectedKey == key
+                    // Future days keep a faint slot so the week reads Monday to Sunday.
+                    BarMark(x: .value("Day", key), y: .value(dollars ? "Estimated USD" : "Tokens", isFuture ? peak * 0.025 : chartValue(day)), width: .ratio(0.55))
+                        .foregroundStyle(isFuture ? Color.secondary.opacity(0.12) : (isToday || isSelected) ? forest : forest.opacity(0.35))
                         .cornerRadius(3)
-                        .accessibilityLabel(day.date.formatted(.dateTime.weekday(.wide).month().day()))
-                        .accessibilityValue(dollars ? money(day.estimatedUSD) + (day.partial ? ", partial estimate" : "") : "\(day.tokens.formatted()) tokens")
+                        .annotation(position: .top, spacing: 3) {
+                            if isToday { Text("Today").font(.caption2.weight(.semibold)).foregroundStyle(forest) }
+                        }
+                        .accessibilityLabel((isToday ? "Today, " : "") + day.date.formatted(.dateTime.weekday(.wide).month().day()))
+                        .accessibilityValue(isFuture ? "Not yet" : dollars ? money(day.estimatedUSD) + (day.partial ? ", partial estimate" : "") : "\(day.tokens.formatted()) tokens")
                 }
-                .chartXSelection(value: $selectedDate)
+                .chartXSelection(value: $selectedKey)
+                .onChange(of: selectedKey) { _, key in selectedDate = key.flatMap { k in week.first { Self.dayKey($0.date) == k }?.date } }
                 .chartYAxis(.hidden)
-                .chartXAxis { AxisMarks(values: .stride(by: .day)) { value in AxisValueLabel(format: .dateTime.weekday(.narrow), centered: true) } }
-                .chartYScale(domain: 0...max(1, (account.days.map(chartValue).max() ?? 1) * 1.1))
-                .frame(height: 76)
+                .chartXAxis {
+                    AxisMarks(values: week.map { Self.dayKey($0.date) }) { value in
+                        let date = value.as(String.self).flatMap { k in week.first { Self.dayKey($0.date) == k }?.date }
+                        let isToday = date.map { Calendar.current.isDate($0, inSameDayAs: today) } ?? false
+                        AxisValueLabel {
+                            Text(date?.formatted(.dateTime.weekday(.narrow)) ?? "")
+                                .fontWeight(isToday ? .bold : .regular)
+                                .foregroundStyle(isToday ? forest : Color.secondary)
+                        }
+                    }
+                }
+                .chartYScale(domain: 0...(peak * 1.18))
+                .frame(height: 84)
                 HStack {
-                    Text("Week total")
+                    Text(weekOffset == 0 ? "Week so far" : "Week total")
                     Spacer()
-                    Text(dollars ? weeklyMoney(account.days) : "\(weeklyTokens(account.days).formatted()) tokens")
+                    Text(dollars ? weeklyMoney(week.filter { $0.date <= today }) : "\(weeklyTokens(week).formatted()) tokens")
                 }.font(.caption).foregroundStyle(.secondary)
-                if dollars && account.days.contains(where: { $0.partial || $0.estimatedUSD == nil }) {
+                if dollars && week.contains(where: { $0.date <= today && ($0.partial || $0.estimatedUSD == nil) }) {
                     Text("Some models or billing categories have no verified rate. Empty bars may have unavailable values.")
                         .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
                 }
@@ -175,6 +207,19 @@ struct MainView: View {
             }
             .font(.caption2).foregroundStyle(.tertiary).multilineTextAlignment(.center)
             .padding(.horizontal, 24).padding(.top, 14).padding(.bottom, 16)
+        }
+    }
+    private static let keyFormatter: DateFormatter = {
+        let f = DateFormatter(); f.calendar = Calendar(identifier: .gregorian); f.locale = Locale(identifier: "en_US_POSIX"); f.dateFormat = "yyyy-MM-dd"; return f
+    }()
+    static func dayKey(_ date: Date) -> String { keyFormatter.string(from: date) }
+    private func weekTitle(_ week: [DailyUsage]) -> String {
+        switch weekOffset {
+        case 0: return "This week"
+        case 1: return "Last week"
+        default:
+            guard let first = week.first?.date, let last = week.last?.date else { return "" }
+            return "\(first.formatted(.dateTime.month(.abbreviated).day())) – \(last.formatted(.dateTime.day()))"
         }
     }
     private func periodCaption(_ account: AccountSnapshot) -> String {
@@ -419,8 +464,6 @@ private struct AccountLine: View {
 private struct GardenGrid: View {
     @ObservedObject var model: AppModel
     @State private var hovered: String?
-    /// One shared crop height so cards in a row line up; follows the tallest plant.
-    private var gridHeight: Double { model.snapshots.map { PlantLayout.cropHeight($0.plant, minimum: 190) }.max() ?? 190 }
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     var body: some View {
         ScrollView {
@@ -434,8 +477,9 @@ private struct GardenGrid: View {
                         }
                     } label: {
                         VStack(spacing: 4) {
-                            PlantView(plant: snap.plant, active: model.mainVisible && recentlyActive(snap), idle: model.mainVisible, crop: true)
-                                .frame(width: 140, height: gridHeight * 140 / 320)
+                            // Same fixed stage as the window: room to grow upward, pots aligned across cards.
+                            PlantView(plant: snap.plant, active: model.mainVisible && recentlyActive(snap), idle: model.mainVisible)
+                                .frame(width: 140, height: 175)
                             Text(snap.profile.provider.displayName).font(.system(size: 17, weight: .medium, design: .serif))
                             Text(snap.profile.alias).font(.caption).foregroundStyle(.secondary).lineLimit(1)
                             Text("\((snap.periods[.today]?.tokens ?? 0).formatted(.number.notation(.compactName))) tokens today")

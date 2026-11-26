@@ -53,6 +53,9 @@ final class PotDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
                           styleMask: [.titled, .closable, .miniaturizable], backing: .buffered, defer: false)
         window.title = "Pot"
         window.isReleasedWhenClosed = false
+        // Open on the Space the person is looking at, including over a full-screen app,
+        // instead of switching Spaces or appearing on a Space they can't see.
+        window.collectionBehavior = [.moveToActiveSpace, .fullScreenAuxiliary]
         window.delegate = self
         window.titlebarAppearsTransparent = true
         window.contentView = NSHostingView(rootView: MainView(model: model))

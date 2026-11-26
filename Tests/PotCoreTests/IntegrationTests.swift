@@ -342,4 +342,18 @@ final class IntegrationTests:XCTestCase {
         let c=try db.coverage(profileID:Provider.claude.unattributedProfileID)
         XCTAssertEqual(c.count,2);XCTAssertEqual(c.first,MetricDate.parse("2026-11-25T12:00:00Z"));XCTAssertEqual(c.last,MetricDate.parse("2026-11-26T12:00:00Z"))
     }
+    func testCalendarWeekRunsMondayToSundayWithFutureDaysEmpty() throws {
+        let catalog=try PriceCatalog.bundled()
+        var calendar=Calendar(identifier:.gregorian);calendar.firstWeekday=2 // Monday, as in Chile
+        let zone=TimeZone(identifier:"America/Santiago")!;calendar.timeZone=zone
+        let thursday=calendar.date(from:DateComponents(year:2026,month:11,day:26,hour:15))! // a Thursday
+        func e(_ day:Int,_ tokens:Int64)->UsageEvent {UsageEvent(id:"w\(day)",provider:.claude,timestamp:calendar.date(from:DateComponents(year:2026,month:11,day:day,hour:10))!,model:"claude-opus-5-5",input:tokens,output:0)}
+        let events=[e(22,5),e(23,10),e(26,20),e(16,7)] // Sun 22 belongs to last week; 16 is two weeks back
+        let week=UsageStatistics.calendarWeek(events:events,now:thursday,calendar:calendar,timeZone:zone,catalog:catalog)
+        XCTAssertEqual(week.count,7)
+        XCTAssertEqual(calendar.component(.weekday,from:week[0].date),2,"Starts on Monday")
+        XCTAssertEqual(week.map(\.tokens),[10,0,0,20,0,0,0])
+        let last=UsageStatistics.calendarWeek(events:events,weeksAgo:1,now:thursday,calendar:calendar,timeZone:zone,catalog:catalog)
+        XCTAssertEqual(last.map(\.tokens),[7,0,0,0,0,0,5])
+    }
 }
