@@ -17,6 +17,8 @@ struct AccountSnapshot {
     var historyStart: Date?
     var recordCount = 0
     var lastRead = Date()
+    /// Calendar weeks, newest first: [0] is this week (Monday–Sunday in most locales), up to 5 weeks back.
+    var weeks: [[DailyUsage]] = []
 }
 
 /// Confined to AppModel's serial ingestion queue; never touched concurrently.
@@ -105,7 +107,8 @@ private final class GardenWorker: @unchecked Sendable {
                 days: UsageStatistics.lastSevenDays(events: events, now: now, timeZone: .current, catalog: catalog),
                 lastActivity: events.filter { $0.timestamp <= now }.map(\.timestamp).max(),
                 coverage: coverage[profile.provider] ?? "No source available · health protected", priceReference: catalog.verifiedAt,
-                periods: periods, historyStart: range.first, recordCount: range.count, lastRead: now)
+                periods: periods, historyStart: range.first, recordCount: range.count, lastRead: now,
+                weeks: (0...5).map { UsageStatistics.calendarWeek(events: events, weeksAgo: $0, now: now, catalog: catalog) })
         }
         // Stable garden order: provider, then plants with account evidence, then alias.
         .sorted { a, b in

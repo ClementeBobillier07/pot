@@ -66,6 +66,11 @@ Para reiniciar el estado de desarrollo: `rm -rf ~/Library/Application\ Support/P
   - Ilustración nativa con el estilo de la landing: Codex como eucalipto en maceta salvia y Claude con hojas finas en terracota; salud visible y siete etapas de flor.
 - **Kit:** `docs/BETA.md` con la plantilla de issue, `docs/RELEASE.md` y `docs/MAC_QA.md`.
 
+## Pulido de lanzamiento (26-11-2026)
+
+- Textos sin calibración; línea de estado de la planta; encuadre sin cielo vacío; landing con plantas renderizadas por la app y sección de variantes; arrastre y clic de la planta flotante verificados.
+- Firma: el Mac del dueño solo tiene certificado *Apple Development*; falta crear *Developer ID Application* y el perfil de `notarytool` (ver `docs/RELEASE.md`).
+
 ## Lo que falta (en orden)
 
 1. **QA interactiva en el Mac** (`docs/MAC_QA.md`). Nunca se probó con clics reales:

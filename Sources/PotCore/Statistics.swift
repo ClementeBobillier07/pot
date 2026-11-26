@@ -134,3 +134,24 @@ public enum GardenExport {
         return try encoder.encode(Document(exportedAt: now, priceReference: catalog.version, plants: output))
     }
 }
+
+extension UsageStatistics {
+    /// The calendar week (first weekday from the calendar, e.g. Monday in Chile) that is `weeksAgo`
+    /// weeks before the one containing `now`. All seven days are returned, including future ones
+    /// (zero, never counted) so the chart keeps a stable Monday–Sunday layout.
+    public static func calendarWeek(events: [UsageEvent], weeksAgo: Int = 0, now: Date = Date(), calendar base: Calendar = .current, timeZone: TimeZone = .current, catalog: PriceCatalog) -> [DailyUsage] {
+        var calendar = base
+        calendar.timeZone = timeZone
+        let today = calendar.startOfDay(for: now)
+        guard let thisWeek = calendar.dateInterval(of: .weekOfYear, for: today)?.start,
+              let start = calendar.date(byAdding: .weekOfYear, value: -weeksAgo, to: thisWeek) else { return [] }
+        return (0..<7).compactMap { offset in
+            guard let day = calendar.date(byAdding: .day, value: offset, to: start),
+                  let end = calendar.date(byAdding: .day, value: 1, to: day) else { return nil }
+            let daily = events.filter { $0.timestamp >= day && $0.timestamp < end && $0.timestamp <= now }
+            let estimate = catalog.estimate(daily)
+            let tokens = daily.reduce(Int64(0)) { sum, event in let (next, overflow) = sum.addingReportingOverflow(event.totalTokens); return overflow ? Int64.max : next }
+            return DailyUsage(date: day, tokens: tokens, estimatedUSD: estimate.amount, partial: estimate.partial)
+        }
+    }
+}

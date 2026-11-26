@@ -14,6 +14,10 @@ enum PotApplication {
         if let i = CommandLine.arguments.firstIndex(of: "--render-plants"), i + 1 < CommandLine.arguments.count {
             MainActor.assumeIsolated { PlantSnapshots.renderAndExit(to: CommandLine.arguments[i + 1]) }
         }
+        // `Pot --render-landing <dir>`: transparent illustration PNGs for the website, from the app's renderer.
+        if let i = CommandLine.arguments.firstIndex(of: "--render-landing"), i + 1 < CommandLine.arguments.count {
+            MainActor.assumeIsolated { PlantSnapshots.renderLandingAndExit(to: CommandLine.arguments[i + 1]) }
+        }
         MainActor.assumeIsolated {
             let app = NSApplication.shared
             let potDelegate = PotDelegate()
@@ -44,10 +48,14 @@ final class PotDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             button.action = #selector(statusClicked(_:))
             button.sendAction(on: [.leftMouseUp, .rightMouseUp])
         }
-        window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 430, height: 720),
+        let available = NSScreen.main?.visibleFrame.height ?? 900
+        window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 430, height: min(820, max(720, available - 60))),
                           styleMask: [.titled, .closable, .miniaturizable], backing: .buffered, defer: false)
         window.title = "Pot"
         window.isReleasedWhenClosed = false
+        // Open on the Space the person is looking at, including over a full-screen app,
+        // instead of switching Spaces or appearing on a Space they can't see.
+        window.collectionBehavior = [.moveToActiveSpace, .fullScreenAuxiliary]
         window.delegate = self
         window.titlebarAppearsTransparent = true
         window.contentView = NSHostingView(rootView: MainView(model: model))
@@ -61,8 +69,11 @@ final class PotDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
 
     func openMain() {
         model.mainVisible = true
+        // macOS 14+ cooperative activation: the click on the plant or menu is the user's request.
+        // `orderFrontRegardless` keeps the window in front even if activation is declined.
+        NSApp.activate()
         window.makeKeyAndOrderFront(nil)
-        NSApp.activate(ignoringOtherApps: true)
+        window.orderFrontRegardless()
     }
 
     @objc private func statusClicked(_ sender: Any?) {

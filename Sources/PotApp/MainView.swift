@@ -11,6 +11,10 @@ struct MainView: View {
     @State private var dollars = false
     @State private var selectedDate: Date?
     @State private var period: UsagePeriod = .today
+    /// 0 = this week, 1 = last week, …
+    @State private var weekOffset = 0
+    /// Chart selection by day key (yyyy-MM-dd); categorical so all seven labels always show.
+    @State private var selectedKey: String?
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     var body: some View {
         VStack(spacing: 0) {
@@ -55,14 +59,14 @@ struct MainView: View {
                 Text(message).font(.callout).foregroundStyle(.secondary).padding(16).accessibilityAddTraits(.updatesFrequently)
             }
         }
-        .frame(minWidth: 420, idealWidth: 430, maxWidth: .infinity, minHeight: 650, maxHeight: .infinity)
+        .frame(minWidth: 420, idealWidth: 430, maxWidth: .infinity, minHeight: 700, maxHeight: .infinity)
         .background(Color(nsColor: .windowBackgroundColor))
         .tint(forest)
         .preferredColorScheme(model.colorScheme)
         .background(TrackpadNavigation {
             if model.onboarded && !model.showSettings && !model.showGrid { navigate($0) }
         })
-        .onChange(of: model.selectedID) { _, _ in selectedDate = nil }
+        .onChange(of: model.selectedID) { _, _ in selectedDate = nil; selectedKey = nil; weekOffset = 0 }
         .onMoveCommand { direction in
             guard model.onboarded, !model.showSettings else { return }
             guard !model.showGrid else { return }
@@ -87,93 +91,135 @@ struct MainView: View {
     }
 
     private func accountView(_ account: AccountSnapshot) -> some View {
-        let selected = selectedDate.flatMap { date in account.days.first { Calendar.current.isDate($0.date, inSameDayAs: date) } }
+        let week = account.weeks.indices.contains(weekOffset) ? account.weeks[weekOffset] : account.days
+        let today = Calendar.current.startOfDay(for: Date())
+        let selected = selectedDate.flatMap { date in week.first { Calendar.current.isDate($0.date, inSameDayAs: date) && $0.date <= today } }
         let summary = account.periods[period]
         let headlineTokens = selected?.tokens ?? summary?.tokens
         let headlineUSD = selected.map { $0.estimatedUSD } ?? summary?.estimatedUSD
         let headlinePartial = selected?.partial ?? summary?.partial ?? false
-        return ScrollView {
-            VStack(spacing: 5) {
-                HStack(spacing: 10) {
-                    navButton(-1)
-                    VStack(spacing: 3) {
-                        Text(account.profile.provider.displayName).font(.system(size: 24, weight: .medium, design: .serif))
-                        Text(account.profile.email ?? account.profile.alias).font(.callout).foregroundStyle(.secondary).lineLimit(1)
-                    }.frame(minWidth: 220)
-                    navButton(1)
+        // Fixed composition: the plant has a stage with room to grow upward (the whole canvas,
+        // bottom-aligned on the stats), and the statistics stay anchored at the bottom, so nothing
+        // moves as the plant grows from seedling to full.
+        return VStack(spacing: 0) {
+            HStack(spacing: 10) {
+                navButton(-1)
+                VStack(spacing: 3) {
+                    Text(account.profile.provider.displayName).font(.system(size: 24, weight: .medium, design: .serif))
+                    Text(account.profile.email ?? account.profile.alias).font(.callout).foregroundStyle(.secondary).lineLimit(1)
+                }.frame(minWidth: 220)
+                navButton(1)
+            }
+            if model.snapshots.count > 1 {
+                // Page dots: where this plant sits in the garden.
+                HStack(spacing: 7) {
+                    ForEach(model.snapshots, id: \.profile.id) { snap in
+                        Circle().fill(snap.profile.id == account.profile.id ? forest : Color.secondary.opacity(0.3))
+                            .frame(width: 6, height: 6)
+                    }
                 }
-                PlantView(plant: account.plant, active: model.mainVisible && isActive(account), idle: model.mainVisible).frame(width: 290, height: 300)
-                    .id(account.profile.id)
-                    .transition(reduceMotion ? .opacity : PlantSwitch.transition(direction: model.navigationDirection))
-                    .padding(.top, -6).padding(.bottom, 4)
+                .padding(.top, 10)
+                .accessibilityElement().accessibilityLabel("Plant \((model.snapshots.firstIndex { $0.profile.id == account.profile.id } ?? 0) + 1) of \(model.snapshots.count)")
+            }
+            PlantView(plant: account.plant, active: model.mainVisible && isActive(account), idle: model.mainVisible)
+                .frame(maxWidth: .infinity, minHeight: 220, maxHeight: .infinity)
+                .id(account.profile.id)
+                .transition(reduceMotion ? .opacity : PlantSwitch.transition(direction: model.navigationDirection))
+                .padding(.top, 8)
+            Text(PlantStatus.describe(account.plant, lastActivity: account.lastActivity))
+                .font(.caption).foregroundStyle(.secondary).padding(.top, 6)
+
+            VStack(spacing: 4) {
                 Picker("Period", selection: $period) {
                     ForEach(UsagePeriod.allCases) { Text($0.title).tag($0) }
                 }.pickerStyle(.segmented).labelsHidden().frame(width: 290).padding(.bottom, 6)
                 .onChange(of: period) { _, _ in selectedDate = nil }
                 Text(headlineTokens.map { $0.formatted() } ?? "…")
-                    .font(.system(size: 32, weight: .light, design: .rounded)).monospacedDigit()
+                    .font(.system(size: 30, weight: .light, design: .rounded)).monospacedDigit()
                     .contentTransition(.numericText())
                 Text(selected.map { "tokens · " + $0.date.formatted(.dateTime.month(.abbreviated).day()) } ?? periodCaption(account))
                     .font(.callout).foregroundStyle(.secondary)
                 HStack(spacing: 5) {
                     Text(headlineTokens == nil ? "…" : money(headlineUSD ?? nil))
                     Text("Estimated API value\(headlinePartial ? " · partial" : "")")
-                }.font(.caption).foregroundStyle(.secondary).padding(.top, 3)
+                }.font(.caption).foregroundStyle(.secondary).padding(.top, 2)
                 .help("Reference API prices for the same tokens. Not your bill or subscription usage.")
-                VStack(spacing: 12) {
-                    HStack {
-                        Text("Last 7 days").font(.callout)
-                        Spacer()
-                        Picker("Chart unit", selection: $dollars) {
-                            Text("Tokens").tag(false); Text("USD").tag(true)
-                        }.pickerStyle(.segmented).labelsHidden().frame(width: 132)
-                    }
-                    Chart(account.days, id: \.date) { day in
-                        BarMark(x: .value("Day", day.date, unit: .day), y: .value(dollars ? "Estimated USD" : "Tokens", chartValue(day)), width: .ratio(0.55))
-                            .foregroundStyle(selectedDate.map { Calendar.current.isDate($0, inSameDayAs: day.date) } == true ? forest : forest.opacity(0.45))
-                            .cornerRadius(3)
-                            .accessibilityLabel(day.date.formatted(.dateTime.weekday(.wide).month().day()))
-                            .accessibilityValue(dollars ? money(day.estimatedUSD) + (day.partial ? ", partial estimate" : "") : "\(day.tokens.formatted()) tokens")
-                    }
-                    .chartXSelection(value: $selectedDate)
-                    .chartYAxis(.hidden)
-                    .chartXAxis { AxisMarks(values: .stride(by: .day)) { value in AxisValueLabel(format: .dateTime.weekday(.narrow), centered: true) } }
-                    .chartYScale(domain: 0...max(1, (account.days.map(chartValue).max() ?? 1) * 1.1))
-                    .frame(height: 90)
-                    HStack {
-                        Text("Week total")
-                        Spacer()
-                        Text(dollars ? weeklyMoney(account.days) : "\(weeklyTokens(account.days).formatted()) tokens")
-                    }.font(.caption).foregroundStyle(.secondary)
-                    if dollars && account.days.contains(where: { $0.partial || $0.estimatedUSD == nil }) {
-                        Text("Some models or billing categories have no verified rate. Empty bars may have unavailable values.")
-                            .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
-                    }
-                }.padding(.horizontal, 32).padding(.top, 22)
-                if model.snapshots.count > 1 {
-                    // Page dots: where this plant sits in the garden.
-                    HStack(spacing: 7) {
-                        ForEach(model.snapshots, id: \.profile.id) { snap in
-                            Circle().fill(snap.profile.id == account.profile.id ? forest : Color.secondary.opacity(0.3))
-                                .frame(width: 6, height: 6)
+            }.padding(.top, 18)
+            VStack(spacing: 10) {
+                HStack(spacing: 6) {
+                    Button { weekOffset += 1; selectedDate = nil; selectedKey = nil } label: { Image(systemName: "chevron.left") }
+                        .buttonStyle(.plain).foregroundStyle(.secondary).disabled(weekOffset >= account.weeks.count - 1)
+                        .accessibilityLabel("Previous week")
+                    Text(weekTitle(week)).font(.callout).monospacedDigit().frame(minWidth: 112)
+                    Button { weekOffset -= 1; selectedDate = nil; selectedKey = nil } label: { Image(systemName: "chevron.right") }
+                        .buttonStyle(.plain).foregroundStyle(.secondary).disabled(weekOffset == 0)
+                        .accessibilityLabel("Next week")
+                    Spacer()
+                    Picker("Chart unit", selection: $dollars) {
+                        Text("Tokens").tag(false); Text("USD").tag(true)
+                    }.pickerStyle(.segmented).labelsHidden().frame(width: 132)
+                }
+                let peak = max(1, week.map(chartValue).max() ?? 1)
+                Chart(week, id: \.date) { day in
+                    let key = Self.dayKey(day.date)
+                    let isToday = Calendar.current.isDate(day.date, inSameDayAs: today)
+                    let isFuture = day.date > today
+                    let isSelected = selectedKey == key
+                    // Future days keep a faint slot so the week reads Monday to Sunday.
+                    BarMark(x: .value("Day", key), y: .value(dollars ? "Estimated USD" : "Tokens", isFuture ? peak * 0.025 : chartValue(day)), width: .ratio(0.55))
+                        .foregroundStyle(isFuture ? Color.secondary.opacity(0.12) : (isToday || isSelected) ? forest : forest.opacity(0.35))
+                        .cornerRadius(3)
+                        .annotation(position: .top, spacing: 3) {
+                            if isToday { Text("Today").font(.caption2.weight(.semibold)).foregroundStyle(forest) }
+                        }
+                        .accessibilityLabel((isToday ? "Today, " : "") + day.date.formatted(.dateTime.weekday(.wide).month().day()))
+                        .accessibilityValue(isFuture ? "Not yet" : dollars ? money(day.estimatedUSD) + (day.partial ? ", partial estimate" : "") : "\(day.tokens.formatted()) tokens")
+                }
+                .chartXSelection(value: $selectedKey)
+                .onChange(of: selectedKey) { _, key in selectedDate = key.flatMap { k in week.first { Self.dayKey($0.date) == k }?.date } }
+                .chartYAxis(.hidden)
+                .chartXAxis {
+                    AxisMarks(values: week.map { Self.dayKey($0.date) }) { value in
+                        let date = value.as(String.self).flatMap { k in week.first { Self.dayKey($0.date) == k }?.date }
+                        let isToday = date.map { Calendar.current.isDate($0, inSameDayAs: today) } ?? false
+                        AxisValueLabel {
+                            Text(date?.formatted(.dateTime.weekday(.narrow)) ?? "")
+                                .fontWeight(isToday ? .bold : .regular)
+                                .foregroundStyle(isToday ? forest : Color.secondary)
                         }
                     }
-                    .padding(.top, 25).padding(.bottom, 12)
-                    .accessibilityElement().accessibilityLabel("Plant \((model.snapshots.firstIndex { $0.profile.id == account.profile.id } ?? 0) + 1) of \(model.snapshots.count)")
-                } else {
-                    Spacer().frame(height: 20)
                 }
-                if Date().timeIntervalSince(account.plant.createdAt) < 3 * 86400 {
-                    Text("Getting to know your rhythm · day \(min(3, max(1, Int(Date().timeIntervalSince(account.plant.createdAt) / 86400) + 1))) of 3")
-                        .font(.caption).foregroundStyle(.secondary)
+                .chartYScale(domain: 0...(peak * 1.18))
+                .frame(height: 84)
+                HStack {
+                    Text(weekOffset == 0 ? "Week so far" : "Week total")
+                    Spacer()
+                    Text(dollars ? weeklyMoney(week.filter { $0.date <= today }) : "\(weeklyTokens(week).formatted()) tokens")
+                }.font(.caption).foregroundStyle(.secondary)
+                if dollars && week.contains(where: { $0.date <= today && ($0.partial || $0.estimatedUSD == nil) }) {
+                    Text("Some models or billing categories have no verified rate. Empty bars may have unavailable values.")
+                        .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
                 }
-                Text(account.coverage).font(.caption).foregroundStyle(.secondary)
-                    .multilineTextAlignment(.center).padding(.horizontal, 30)
-                Text(coverageLine(account)).font(.caption).foregroundStyle(.secondary)
-                    .multilineTextAlignment(.center).padding(.horizontal, 30)
-                Text("Reference API rates · \(account.priceReference)")
-                    .font(.caption).foregroundStyle(.secondary).padding(.bottom, 20)
+            }.padding(.horizontal, 32).padding(.top, 18)
+            VStack(spacing: 2) {
+                Text(account.coverage)
+                Text("\(coverageLine(account)) · rates \(account.priceReference)")
             }
+            .font(.caption2).foregroundStyle(.tertiary).multilineTextAlignment(.center)
+            .padding(.horizontal, 24).padding(.top, 14).padding(.bottom, 16)
+        }
+    }
+    private static let keyFormatter: DateFormatter = {
+        let f = DateFormatter(); f.calendar = Calendar(identifier: .gregorian); f.locale = Locale(identifier: "en_US_POSIX"); f.dateFormat = "yyyy-MM-dd"; return f
+    }()
+    static func dayKey(_ date: Date) -> String { keyFormatter.string(from: date) }
+    private func weekTitle(_ week: [DailyUsage]) -> String {
+        switch weekOffset {
+        case 0: return "This week"
+        case 1: return "Last week"
+        default:
+            guard let first = week.first?.date, let last = week.last?.date else { return "" }
+            return "\(first.formatted(.dateTime.month(.abbreviated).day())) – \(last.formatted(.dateTime.day()))"
         }
     }
     private func periodCaption(_ account: AccountSnapshot) -> String {
@@ -212,13 +258,22 @@ struct MainView: View {
 
 private struct OnboardingView: View {
     @ObservedObject var model: AppModel
+    /// Illustration only (not anyone's data): a fully grown variation-01 Codex plant.
+    static let illustration: PlantState = {
+        var seed: UInt64 = 17
+        while PlantSpecies.of(seed: seed) != .classic { seed += 1 }
+        var plant = PlantState(seed: seed, provider: .codex, createdAt: Date(timeIntervalSince1970: 0))
+        plant.growth = PlantFormBuilder.daysToFull
+        return plant
+    }()
     var body: some View {
         ScrollView {
         VStack(spacing: 22) {
             Spacer(minLength: 10)
             switch model.onboardingStep {
             case 0:
-                PlantView(plant: PlantState(seed: 17, provider: .codex, createdAt: Date())).frame(height: 240)
+                PlantView(plant: Self.illustration).frame(height: 240)
+                    .accessibilityHint("An illustration of what a plant can grow into")
                 Text("A little plant on your Mac.").font(.system(size: 28, weight: .regular, design: .serif)).multilineTextAlignment(.center)
                 Text("You code. It grows.").foregroundStyle(.secondary)
                 Text("Pot reads local Codex and Claude Code records. It keeps usage counts and your garden, never your conversations or code. No Pot account. No telemetry.")
@@ -272,7 +327,7 @@ private struct OnboardingView: View {
             default:
                 Image(systemName: "leaf.fill").font(.system(size: 50)).foregroundStyle(forest)
                 Text("Let something grow.").font(.system(size: 30, design: .serif))
-                Text("Your first plant starts small. Over the next three days, Pot will learn your rhythm. Rest days are welcome.")
+                Text("Your first plant starts as a seedling and grows a little with every day of work. A day off changes nothing; longer breaks show, and it always comes back.")
                     .foregroundStyle(.secondary).multilineTextAlignment(.center)
                 Button("Open my garden") { model.finishOnboarding() }.buttonStyle(.borderedProminent)
             }
@@ -319,7 +374,7 @@ private struct SettingsView: View {
                 Picker("Appearance", selection: $model.appearance) { Text("System").tag("system"); Text("Light").tag("light"); Text("Dark").tag("dark") }
             }
             Section("About Pot") {
-                Text("Pot 0.1.0 · A little plant on your Mac.")
+                Text("Pot \(Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "development build") · A little plant on your Mac.")
                 Text("Usage and plants stay on this Mac. Records may contain conversations; Pot keeps only usage metrics. Prices are bundled reference rates, not your bill. Unknown models remain unpriced.")
                     .font(.caption).foregroundStyle(.secondary)
                 Button("Check for updates…") {
@@ -337,6 +392,31 @@ private struct SettingsView: View {
             Button("Delete all Pot data", role: .destructive) { model.eraseData() }
             Button("Cancel", role: .cancel) {}
         } message: { Text("This removes Pot’s usage history, plants and preferences. Agent logs are untouched. Reimporting logs starts a new garden; records already removed by your agents cannot be recovered.") }
+    }
+}
+
+/// One calm line about the plant: how it's growing, or how long it has been without work.
+/// The variant is never named (owner, 2026-11-26): people discover what their seed becomes.
+enum PlantStatus {
+    static func describe(_ plant: PlantState, lastActivity: Date?, now: Date = Date()) -> String {
+        let idleDays = lastActivity.map { max(0, now.timeIntervalSince($0) / 86400) } ?? 0
+        if plant.health < 0.97 {
+            if idleDays < 1 { return "Recovering" }
+            let days = Int(idleDays)
+            let away = days == 1 ? "1 day without work" : "\(days) days without work"
+            if plant.health > 0.75 { return "A little thirsty · \(away)" }
+            if plant.health > 0.4 { return "Wilting · \(away)" }
+            return "Dry · a week of work brings it back"
+        }
+        let form = PlantFormBuilder.build(plant)
+        let stage: String
+        switch form.growth {
+        case ..<0.04: stage = "A new seedling"
+        case ..<0.3: stage = "Growing"
+        case ..<1: stage = form.flowers.contains { $0.openness >= 0.6 } ? "In bloom" : "Budding"
+        default: stage = "Fully grown"
+        }
+        return stage
     }
 }
 
@@ -396,8 +476,9 @@ private struct GardenGrid: View {
                         }
                     } label: {
                         VStack(spacing: 4) {
+                            // Same fixed stage as the window: room to grow upward, pots aligned across cards.
                             PlantView(plant: snap.plant, active: model.mainVisible && recentlyActive(snap), idle: model.mainVisible)
-                                .frame(width: 150, height: 176)
+                                .frame(width: 140, height: 175)
                             Text(snap.profile.provider.displayName).font(.system(size: 17, weight: .medium, design: .serif))
                             Text(snap.profile.alias).font(.caption).foregroundStyle(.secondary).lineLimit(1)
                             Text("\((snap.periods[.today]?.tokens ?? 0).formatted(.number.notation(.compactName))) tokens today")

@@ -121,6 +121,9 @@ final class FloatingPlantController {
     }
     private func updateHitTesting() {
         guard panel.isVisible, let plant = model.selected?.plant else { return }
+        // A press that started on the plant (click or drag) keeps the panel accepting the mouse
+        // until release, even if the pointer outruns the window; presses elsewhere pass through.
+        if !panel.ignoresMouseEvents && NSEvent.pressedMouseButtons & 1 != 0 { return }
         let point = panel.convertPoint(fromScreen: NSEvent.mouseLocation)
         let insideWindow = NSRect(origin: .zero, size: panel.frame.size).contains(point)
         let w = CGFloat(model.plantSize), s = w / 320
@@ -231,7 +234,7 @@ private final class DragSurfaceView: NSView {
     required init?(coder: NSCoder) { nil }
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
     override func mouseDown(with event: NSEvent) { startMouse = NSEvent.mouseLocation; startOrigin = window?.frame.origin ?? .zero; dragged = false }
-    override func mouseDragged(with event: NSEvent) {
+    override func mouseDragged(with event: NSEvent) { 
         let point = NSEvent.mouseLocation
         let dx = point.x - startMouse.x, dy = point.y - startMouse.y
         if hypot(dx, dy) >= 4 { dragged = true }

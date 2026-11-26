@@ -1,5 +1,7 @@
 # Native macOS acceptance checklist
 
+Verified with real (HID-level) synthetic input on macOS 27.0.1, 2026-11-26: hovering the floating plant does not take focus from the active app; dragging moves the panel (a press that starts on the plant keeps the panel until release) and does not open Pot; a click opens Pot's window in front; a long two-finger swipe switches exactly one plant; the close badge appears on hover.
+
 Status (2026-11-25): build, tests, launch, real-data import/reconciliation, transparent floating panel rendering, universal local DMG, and idle footprint verified on macOS 27.0.1 / Apple Silicon (see BASELINE.md). **Interactive items below remain pending** (hover, drag, click-through, focus, Spaces, displays, sleep, login items, VoiceOver). Do not mark an item passed solely because Swift core tests succeed.
 
 Quick start for a QA run: `swift run Pot` (development, defaults domain `Pot`) or install `artifacts/Pot-*-local.app` into /Applications (defaults domain `com.pot.mac`). `swift run Pot --show-window` opens the garden window directly. Reset with Settings → Delete local data, or `rm -rf ~/Library/Application\ Support/Pot && defaults delete Pot`.
@@ -36,6 +38,7 @@ For each run record hardware, CPU architecture, macOS version, Xcode/Swift versi
 
 - Exactly one plant, transparent with no card, shadow, title or visible background in light/dark mode.
 - Two-finger horizontal swipe over the floating plant switches to the next/previous plant once per gesture, with a soft fade; the main window follows the same selection.
+- Window: the plant keeps a fixed stage (no layout shift as it grows); the weekly chart runs Monday–Sunday with today highlighted and previous-week arrows; opening Pot from a full-screen app shows the window on that Space.
 - Window: arrows beside the plant name and page dots switch plants; the grid button (⌘G) shows every plant gently swaying; clicking a card opens it. Settings → Connected agents shows each signed-in email, method and plan.
 - Hover shows only the close button (black ✕ in a white circle with black outline) just above the plant's top-right edge; leaving the plant fades it. Clicking it never opens the main app. There are no arrows on the desktop; plants are switched inside Pot.
 - A plant click opens the main window with the corresponding account. A drag changes position without opening the window; position survives restart.

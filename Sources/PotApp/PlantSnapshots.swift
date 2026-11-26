@@ -58,6 +58,36 @@ enum PlantSnapshots {
 
     private static let start = Date(timeIntervalSince1970: 1_767_225_600) // 2026-01-01 UTC, fixed
 
+    /// Website illustrations: `<provider>-<variant>-<stage>.png`, 640×800 transparent, the same
+    /// canvas as the app. Stage 0 ≈ day 7, 1 ≈ day 21, 2 ≈ day 45, 3 = full (day 90). Illustrative only.
+    @MainActor
+    static func renderLandingAndExit(to directory: String) -> Never {
+        let output = URL(fileURLWithPath: directory, isDirectory: true)
+        let wanted: [(Provider, PlantSpecies, [Int])] = [
+            (.codex, .classic, [0, 1, 3]), (.codex, .blossom, [0, 1, 3]),
+            (.claude, .classic, [3]), (.claude, .blossom, [3]),
+        ]
+        do {
+            try FileManager.default.createDirectory(at: output, withIntermediateDirectories: true)
+            for (provider, species, stages) in wanted {
+                let seed = seed(for: species, salt: provider == .codex ? 1 : 2)
+                for stage in stages {
+                    var plant = PlantState(seed: seed, provider: provider, createdAt: start)
+                    plant.growth = [7.0, 21, 45, 90][stage]
+                    plant.lastUpdated = start.addingTimeInterval(Double([7, 21, 45, 90][stage]) * 86400)
+                    plant.lastActivity = plant.lastUpdated
+                    try write(PlantView(plant: plant).frame(width: 320, height: 400),
+                              name: "\(provider.rawValue)-\(species.rawValue)-\(stage).png", in: output)
+                }
+            }
+            print("Wrote website plant illustrations to \(output.path)")
+            exit(0)
+        } catch {
+            fputs("Landing render failed: \(error)\n", stderr)
+            exit(1)
+        }
+    }
+
     private static func seed(for species: PlantSpecies, salt: UInt64) -> UInt64 {
         var seed: UInt64 = 20_261_126 &* salt
         while PlantSpecies.of(seed: seed) != species { seed &+= 1 }
