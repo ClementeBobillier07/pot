@@ -35,13 +35,16 @@ For each run record hardware, CPU architecture, macOS version, Xcode/Swift versi
 ## Floating NSPanel
 
 - Exactly one plant, transparent with no card, shadow, title or visible background in light/dark mode.
-- Hover shows only the X and (when several plants exist) left/right arrows; leaving fades controls. Controls never open the main app accidentally.
+- Two-finger horizontal swipe over the floating plant switches to the next/previous plant once per gesture, with a soft fade; the main window follows the same selection.
+- Window: arrows beside the plant name and page dots switch plants; the grid button (⌘G) shows every plant gently swaying; clicking a card opens it. Settings → Connected agents shows each signed-in email, method and plan.
+- Hover shows only the close button (black ✕ in a white circle with black outline) just above the plant's top-right edge; leaving the plant fades it. Clicking it never opens the main app. There are no arrows on the desktop; plants are switched inside Pot.
 - A plant click opens the main window with the corresponding account. A drag changes position without opening the window; position survives restart.
 - The panel appearing, hovering or dragging must not steal focus from the active application. Test typing into another application while activity begins.
 - Empty transparent regions must not unnecessarily obstruct interaction with underlying windows. Test control hit targets and cursor tracking along the silhouette.
 - X hides the panel while Pot stays alive. Recover it using the menu item. In “While I work”, closing it suppresses the current activity session and new activity after idle may show it again.
 - Onboarding corner picker and Settings → Corner place the plant in each of the four corners inside the visible frame (Dock/menu bar excluded).
-- Menu bar: Presentation submenu switches the three modes; Pause/Resume garden toggles and the garden shows "Garden paused"; resuming after days does not wilt the plant.
+- Menu bar: Presentation submenu switches the three modes.
+- Growth (engine 2): a light-use plant grows visibly slower than a heavy one; after 2–4 idle days leaves droop and yellow; a few days of use restore it.
 - Test all three display modes; idle timeout/hysteresis; manual hide; agent bursts; activity on a different selected provider. Historical import must not trigger a welcome dance or switch the selected plant.
 - Test scaling, all screen corners, Dock at bottom/left/right, menu-bar autohide, Retina/non-Retina monitors, resolution changes and unplugging the saved monitor. Ensure panel remains reachable.
 - Test Spaces, full-screen applications and Stage Manager separately. Record any intentional visibility limitation; do not assume collectionBehavior alone proves support.

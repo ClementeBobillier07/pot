@@ -104,10 +104,12 @@ if arguments.first == "reconcile" {
 if arguments.first == "--detect" {
     // No public identity is printed, even when the installed client exposes one.
     // The default discovery path never starts optional Codex app-server.
-    for agent in SourceDiscovery.detect() {
+    // `--detect --accounts` also runs the optional Codex account lookup; values are still not printed.
+    for agent in SourceDiscovery.detect(includeAccountDetails: arguments.contains("--accounts")) {
         let auth = agent.authenticated.map { $0 ? "yes" : "no" } ?? "unknown"
         let identity = agent.account.map { $0.id != nil || $0.email != nil } ?? false
-        print("provider=\(agent.provider.rawValue) installed=\(agent.executable != nil) version=\(agent.version ?? "unknown") authenticated=\(auth) hasPublicIdentity=\(identity) roots=\(agent.roots.count) status=\(agent.status)")
+        let a = agent.account
+        print("provider=\(agent.provider.rawValue) installed=\(agent.executable != nil) version=\(agent.version ?? "unknown") authenticated=\(auth) hasPublicIdentity=\(identity) hasEmail=\(a?.email != nil) plan=\(a?.plan ?? "-") method=\(a?.method ?? "-") roots=\(agent.roots.count) status=\(agent.status)")
     }
     exit(0)
 }

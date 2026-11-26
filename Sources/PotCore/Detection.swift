@@ -5,10 +5,16 @@ import Glibc
 import Darwin
 #endif
 
-public struct DetectedAccount:Sendable {
+/// Who the installed agent says is signed in right now. Display only: it never owns historical logs.
+public struct DetectedAccount:Sendable,Equatable {
     public var id:String?
     public var email:String?
-    public init(id:String?=nil,email:String?=nil){self.id=id;self.email=email}
+    /// Plan or subscription label reported by the agent (e.g. "plus", "max").
+    public var plan:String?
+    /// How the agent is signed in (e.g. "ChatGPT", "claude.ai", "API key").
+    public var method:String?
+    public var organization:String?
+    public init(id:String?=nil,email:String?=nil,plan:String?=nil,method:String?=nil,organization:String?=nil){self.id=id;self.email=email;self.plan=plan;self.method=method;self.organization=organization}
 }
 public struct AgentDetection:Sendable {
     public var provider:Provider
@@ -28,7 +34,9 @@ private final class CommandOutput {
 }
 struct CommandResult {var data:Data;var status:Int32;var timedOut:Bool}
 enum AgentCommand {
-    static func run(_ executable:URL,_ arguments:[String],input:Data?=nil,timeout:Double=3)->CommandResult? {
+    /// `until` keeps stdin open (some JSON-RPC servers exit on EOF before replying) and stops the
+    /// process as soon as the collected output satisfies it.
+    static func run(_ executable:URL,_ arguments:[String],input:Data?=nil,timeout:Double=3,until:((Data)->Bool)?=nil)->CommandResult? {
         let p=Process();p.executableURL=executable;p.arguments=arguments
         var environment=ProcessInfo.processInfo.environment
         environment["CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC"]="1";environment["DISABLE_TELEMETRY"]="1"
@@ -42,9 +50,22 @@ enum AgentCommand {
             drained.signal()
         }
         if let input {try? inPipe.fileHandleForWriting.write(contentsOf:input)}
-        try? inPipe.fileHandleForWriting.close()
-        let timedOut=finished.wait(timeout:.now()+timeout) == .timedOut
-        if timedOut {
+        var timedOut:Bool
+        if let until {
+            let deadline=Date().addingTimeInterval(timeout)
+            var satisfied=false
+            while Date()<deadline {
+                if until(buffer.value()) {satisfied=true;break}
+                if finished.wait(timeout:.now()+0.05) == .success {satisfied=until(buffer.value());break}
+            }
+            try? inPipe.fileHandleForWriting.close()
+            timedOut = !satisfied
+            if p.isRunning {p.terminate();if finished.wait(timeout:.now()+0.5) == .timedOut {kill(p.processIdentifier,SIGKILL)}}
+        } else {
+            try? inPipe.fileHandleForWriting.close()
+            timedOut=finished.wait(timeout:.now()+timeout) == .timedOut
+        }
+        if timedOut && p.isRunning {
             p.terminate()
             if finished.wait(timeout:.now()+0.5) == .timedOut {kill(p.processIdentifier,SIGKILL);_ = finished.wait(timeout:.now()+0.5)}
         }
@@ -87,17 +108,27 @@ public enum SourceDiscovery {
             if let auth,!auth.timedOut {
                 if provider == .codex {
                     let text=String(data:auth.data,encoding:.utf8) ?? ""
-                    if text.contains("Logged in") {authenticated=true}
-                    else if text.localizedCaseInsensitiveContains("not logged in"){authenticated=false}
+                    if text.localizedCaseInsensitiveContains("not logged in"){authenticated=false}
+                    else if text.contains("Logged in") {
+                        authenticated=true
+                        // "Logged in using ChatGPT" / "Logged in using an API key"
+                        let method=text.components(separatedBy:"Logged in using ").dropFirst().first?.split(separator:"\n").first.map{String($0).trimmingCharacters(in:.whitespaces)}
+                        account=DetectedAccount(method:method?.replacingOccurrences(of:"an ",with:""))
+                    }
                 } else if let object=(try? JSONSerialization.jsonObject(with:auth.data)) as? [String:Any] {
                     authenticated=object["loggedIn"] as? Bool ?? (auth.status==0)
                     let email=object["email"] as? String
                     let id=(object["accountId"] as? String).map{"claude:account:"+metricID($0)}
-                    if authenticated==true,(email != nil || id != nil){account=DetectedAccount(id:id,email:email)}
+                    if authenticated==true {
+                        account=DetectedAccount(id:id,email:email,plan:(object["subscriptionType"] as? String) ?? (object["planTier"] as? String),
+                                                method:object["authMethod"] as? String,organization:object["orgName"] as? String)
+                    }
                 }
             }
-            if provider == .codex,includeAccountDetails {account=readCodexAccount(executable)}
-            return AgentDetection(provider:provider,executable:executable,version:version,authenticated:authenticated,account:account,roots:roots,status:roots.isEmpty ? "Installed. No local logs yet; use the agent or choose its log folder.":"Local logs found. History without account evidence remains unattributed.")
+            if provider == .codex,includeAccountDetails,let details=readCodexAccount(executable) {
+                account=DetectedAccount(id:details.id,email:details.email,plan:details.plan,method:details.method ?? account?.method)
+            }
+            return AgentDetection(provider:provider,executable:executable,version:version,authenticated:authenticated,account:account,roots:roots,status:roots.isEmpty ? "Installed. No local logs yet; use the agent or choose its log folder.":"Local logs found")
         }
     }
     static func readCodexAccount(_ executable:URL)->DetectedAccount? {
@@ -108,11 +139,16 @@ public enum SourceDiscovery {
         ]
         var data=Data()
         for request in requests {guard let line=try? JSONSerialization.data(withJSONObject:request) else{return nil};data.append(line);data.append(10)}
-        guard let result=AgentCommand.run(executable,["app-server","-c","analytics.enabled=false","--stdio"],input:data,timeout:4) else{return nil}
-        for line in result.data.split(separator:10) {
+        guard let result=AgentCommand.run(executable,["app-server","-c","analytics.enabled=false","--stdio"],input:data,timeout:6,until:{accountResponse(in:$0) != nil}) else{return nil}
+        return accountResponse(in:result.data)
+    }
+    /// Parses the JSON-RPC reply to request id 2 (`account/read`).
+    static func accountResponse(in data:Data)->DetectedAccount? {
+        for line in data.split(separator:10) {
             guard let o=(try? JSONSerialization.jsonObject(with:Data(line))) as? [String:Any],(o["id"] as? Int)==2,let r=o["result"] as? [String:Any],let a=r["account"] as? [String:Any] else{continue}
             let id=(a["id"] as? String).map{"codex:account:"+metricID($0)},email=a["email"] as? String
-            return (id != nil || email != nil) ? DetectedAccount(id:id,email:email):nil
+            let method=(a["type"] as? String).map{$0=="chatgpt" ? "ChatGPT":$0=="apiKey" ? "API key":$0}
+            return DetectedAccount(id:id,email:email,plan:a["planType"] as? String,method:method,organization:a["workspaceName"] as? String)
         }
         return nil
     }

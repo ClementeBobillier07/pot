@@ -11,12 +11,22 @@ struct MainView: View {
     @State private var dollars = false
     @State private var selectedDate: Date?
     @State private var period: UsagePeriod = .today
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     var body: some View {
         VStack(spacing: 0) {
             HStack {
                 Text("pot").font(.system(size: 23, weight: .semibold, design: .serif))
                 Spacer()
                 if model.busy { ProgressView().controlSize(.small).accessibilityLabel("Refreshing local garden") }
+                if model.onboarded && !model.showSettings && !model.snapshots.isEmpty {
+                    Button { withAnimation(reduceMotion ? nil : .easeInOut(duration: 0.3)) { model.showGrid.toggle() } } label: {
+                        Image(systemName: model.showGrid ? "rectangle.portrait" : "square.grid.2x2")
+                    }
+                    .buttonStyle(.plain).padding(.trailing, 14)
+                    .help(model.showGrid ? "Show one plant" : "See your whole garden")
+                    .accessibilityLabel(model.showGrid ? "Show one plant" : "See your whole garden")
+                    .keyboardShortcut("g", modifiers: .command)
+                }
                 Button { model.showSettings.toggle() } label: { Image(systemName: model.showSettings ? "xmark" : "slider.horizontal.3") }
                     .buttonStyle(.plain).accessibilityLabel(model.showSettings ? "Close settings" : "Settings")
             }.padding(.horizontal, 26).padding(.vertical, 18)
@@ -24,8 +34,12 @@ struct MainView: View {
                 SettingsView(model: model)
             } else if !model.onboarded {
                 OnboardingView(model: model)
+            } else if model.showGrid, !model.snapshots.isEmpty {
+                GardenGrid(model: model)
+                    .transition(reduceMotion ? .identity : .opacity.combined(with: .scale(scale: 0.97)))
             } else if let account = model.selected {
                 accountView(account)
+                    .transition(reduceMotion ? .identity : .opacity)
             } else {
                 VStack(spacing: 18) {
                     Spacer()
@@ -46,14 +60,30 @@ struct MainView: View {
         .tint(forest)
         .preferredColorScheme(model.colorScheme)
         .background(TrackpadNavigation {
-            if model.onboarded && !model.showSettings { model.navigate($0); selectedDate = nil }
+            if model.onboarded && !model.showSettings && !model.showGrid { navigate($0) }
         })
         .onChange(of: model.selectedID) { _, _ in selectedDate = nil }
         .onMoveCommand { direction in
             guard model.onboarded, !model.showSettings else { return }
-            if direction == .left { model.navigate(-1) }
-            if direction == .right { model.navigate(1) }
+            guard !model.showGrid else { return }
+            if direction == .left { navigate(-1) }
+            if direction == .right { navigate(1) }
         }
+    }
+
+    private func navigate(_ direction: Int) {
+        withAnimation(reduceMotion ? nil : .easeInOut(duration: 0.28)) { model.navigate(direction) }
+        selectedDate = nil
+    }
+    private func navButton(_ direction: Int) -> some View {
+        let many = model.snapshots.count > 1
+        return Button { navigate(direction) } label: {
+            Image(systemName: direction < 0 ? "chevron.left" : "chevron.right")
+                .font(.system(size: 15, weight: .medium)).frame(width: 32, height: 32).contentShape(Rectangle())
+        }
+        .buttonStyle(.plain).foregroundStyle(.secondary)
+        .opacity(many ? 1 : 0).disabled(!many)
+        .accessibilityLabel(direction < 0 ? "Previous plant" : "Next plant")
     }
 
     private func accountView(_ account: AccountSnapshot) -> some View {
@@ -64,14 +94,18 @@ struct MainView: View {
         let headlinePartial = selected?.partial ?? summary?.partial ?? false
         return ScrollView {
             VStack(spacing: 5) {
-                Text(account.profile.provider.displayName).font(.system(size: 24, weight: .medium, design: .serif))
-                Text(account.profile.email ?? account.profile.alias).font(.callout).foregroundStyle(.secondary).lineLimit(2)
-                PlantView(plant: account.plant, active: model.mainVisible && isActive(account)).frame(width: 290, height: 300)
-                    .padding(.top, -6).padding(.bottom, 4)
-                if account.paused {
-                    Label("Garden paused · growth and wilting are on hold", systemImage: "pause.circle")
-                        .font(.caption).foregroundStyle(.secondary).padding(.bottom, 4)
+                HStack(spacing: 10) {
+                    navButton(-1)
+                    VStack(spacing: 3) {
+                        Text(account.profile.provider.displayName).font(.system(size: 24, weight: .medium, design: .serif))
+                        Text(account.profile.email ?? account.profile.alias).font(.callout).foregroundStyle(.secondary).lineLimit(1)
+                    }.frame(minWidth: 220)
+                    navButton(1)
                 }
+                PlantView(plant: account.plant, active: model.mainVisible && isActive(account), idle: model.mainVisible).frame(width: 290, height: 300)
+                    .id(account.profile.id)
+                    .transition(reduceMotion ? .opacity : PlantSwitch.transition(direction: model.navigationDirection))
+                    .padding(.top, -6).padding(.bottom, 4)
                 Picker("Period", selection: $period) {
                     ForEach(UsagePeriod.allCases) { Text($0.title).tag($0) }
                 }.pickerStyle(.segmented).labelsHidden().frame(width: 290).padding(.bottom, 6)
@@ -116,16 +150,19 @@ struct MainView: View {
                             .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
                     }
                 }.padding(.horizontal, 32).padding(.top, 22)
-                HStack(spacing: 16) {
-                    if model.snapshots.count > 1 {
-                        Button { model.navigate(-1) } label: { Image(systemName: "chevron.left") }.accessibilityLabel("Previous plant")
+                if model.snapshots.count > 1 {
+                    // Page dots: where this plant sits in the garden.
+                    HStack(spacing: 7) {
+                        ForEach(model.snapshots, id: \.profile.id) { snap in
+                            Circle().fill(snap.profile.id == account.profile.id ? forest : Color.secondary.opacity(0.3))
+                                .frame(width: 6, height: 6)
+                        }
                     }
-                    Text("\((model.snapshots.firstIndex { $0.profile.id == account.profile.id } ?? 0) + 1) / \(model.snapshots.count)")
-                        .font(.caption).monospacedDigit().foregroundStyle(.secondary)
-                    if model.snapshots.count > 1 {
-                        Button { model.navigate(1) } label: { Image(systemName: "chevron.right") }.accessibilityLabel("Next plant")
-                    }
-                }.buttonStyle(.plain).padding(.top, 25).padding(.bottom, 12)
+                    .padding(.top, 25).padding(.bottom, 12)
+                    .accessibilityElement().accessibilityLabel("Plant \((model.snapshots.firstIndex { $0.profile.id == account.profile.id } ?? 0) + 1) of \(model.snapshots.count)")
+                } else {
+                    Spacer().frame(height: 20)
+                }
                 if Date().timeIntervalSince(account.plant.createdAt) < 3 * 86400 {
                     Text("Getting to know your rhythm · day \(min(3, max(1, Int(Date().timeIntervalSince(account.plant.createdAt) / 86400) + 1))) of 3")
                         .font(.caption).foregroundStyle(.secondary)
@@ -249,30 +286,21 @@ private struct OnboardingView: View {
 private struct SettingsView: View {
     @ObservedObject var model: AppModel
     @State private var confirmErase = false
-    @State private var alias = ""
     var body: some View {
         Form {
             Section("Connected agents") {
                 ForEach(Provider.allCases, id: \.rawValue) { provider in
-                    VStack(alignment: .leading, spacing: 5) {
+                    let detection = model.detections.first { $0.provider == provider }
+                    VStack(alignment: .leading, spacing: 6) {
                         Toggle(provider.displayName, isOn: Binding(get: { model.enabledProviders.contains(provider) }, set: { model.setEnabled(provider, enabled: $0) }))
-                        Text(model.detections.first { $0.provider == provider }?.status ?? "Refresh to find local sources").font(.caption).foregroundStyle(.secondary)
-                        if let version = model.detections.first(where: { $0.provider == provider })?.version { Text(version).font(.caption).foregroundStyle(.secondary) }
+                        AccountLine(detection: detection, provider: provider, searching: model.busy && model.detections.isEmpty)
+                        Text([detection?.status ?? "Refresh to find local sources", detection?.version].compactMap { $0 }.joined(separator: " · "))
+                            .font(.caption).foregroundStyle(.secondary)
                         Button("Choose log folder…") { model.chooseFolder(for: provider) }
                     }.padding(.vertical, 4)
                 }
-                Button("Refresh detection") { model.refreshDetection() }.disabled(model.busy)
-                Button("Read public account details…") { model.refreshDetection(includeAccountDetails: true) }.disabled(model.busy)
-                Text("Uses the agents’ own status commands. Optional Codex account lookup never requests login or token refresh; the installed client may contact its provider. Historical records stay unattributed unless they identify an account.")
-                    .font(.caption).foregroundStyle(.secondary)
-                if model.selected != nil {
-                    TextField("Plant alias", text: $alias).onSubmit { model.rename(alias) }
-                    Button("Save alias") { model.rename(alias) }
-                }
-            }
-            Section("Garden") {
-                Toggle("Pause the garden", isOn: $model.gardenPaused)
-                Text("For holidays and breaks. Growth and wilting stop until you resume; statistics keep counting.")
+                Button("Refresh") { model.refreshDetection() }.disabled(model.busy)
+                Text("Accounts come from each agent’s own status command. Pot never reads credentials or signs in for you. This is who is signed in now; past activity is only linked to an account when the logs say so.")
                     .font(.caption).foregroundStyle(.secondary)
             }
             Section("At home on your Mac") {
@@ -305,11 +333,96 @@ private struct SettingsView: View {
                 Button("Quit Pot") { NSApp.terminate(nil) }
             }
         }.formStyle(.grouped)
-        .onAppear { alias = model.selected?.profile.alias ?? "" }
         .confirmationDialog("Delete your local garden?", isPresented: $confirmErase, titleVisibility: .visible) {
             Button("Delete all Pot data", role: .destructive) { model.eraseData() }
             Button("Cancel", role: .cancel) {}
         } message: { Text("This removes Pot’s usage history, plants and preferences. Agent logs are untouched. Reimporting logs starts a new garden; records already removed by your agents cannot be recovered.") }
+    }
+}
+
+/// Who is signed in to an agent right now, from its own status command.
+private struct AccountLine: View {
+    let detection: AgentDetection?
+    let provider: Provider
+    var searching = false
+    var body: some View {
+        HStack(alignment: .firstTextBaseline, spacing: 8) {
+            Image(systemName: icon).foregroundStyle(tint).accessibilityHidden(true)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(title).font(.callout).textSelection(.enabled)
+                if let detail { Text(detail).font(.caption).foregroundStyle(.secondary) }
+            }
+        }
+    }
+    private var account: DetectedAccount? { detection?.account }
+    private var icon: String {
+        switch detection?.authenticated { case true?: return "person.crop.circle.badge.checkmark"; case false?: return "person.crop.circle.badge.xmark"; default: return "person.crop.circle.badge.questionmark" }
+    }
+    private var tint: Color { detection?.authenticated == true ? forest : .secondary }
+    private var title: String {
+        if searching { return "Checking…" }
+        guard let detection else { return "Not checked yet" }
+        if detection.executable == nil { return "\(provider.displayName) isn’t installed on this Mac" }
+        switch detection.authenticated {
+        case true?: return account?.email ?? "Signed in"
+        case false?: return "Not signed in · sign in within \(provider.displayName)"
+        default: return "Sign-in status unknown"
+        }
+    }
+    private var detail: String? {
+        guard detection?.authenticated == true, let account else { return nil }
+        // Personal organizations are named after the email; only show a distinct team/workspace name.
+        let organization = account.organization.flatMap { org in account.email.map { org.contains($0) } == true ? nil : org }
+        let parts = [account.method.map { "via \($0)" }, account.plan.map { $0.prefix(1).uppercased() + $0.dropFirst() + " plan" }, organization]
+        let text = parts.compactMap { $0 }.joined(separator: " · ")
+        return text.isEmpty ? nil : text
+    }
+}
+
+/// Every plant at once, small and gently swaying, in garden order. Click one to open it.
+private struct GardenGrid: View {
+    @ObservedObject var model: AppModel
+    @State private var hovered: String?
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    var body: some View {
+        ScrollView {
+            LazyVGrid(columns: [GridItem(.adaptive(minimum: 165, maximum: 240), spacing: 16)], spacing: 16) {
+                ForEach(model.snapshots, id: \.profile.id) { snap in
+                    let isSelected = snap.profile.id == model.selected?.profile.id
+                    Button {
+                        withAnimation(reduceMotion ? nil : .easeInOut(duration: 0.3)) {
+                            model.selectedID = snap.profile.id
+                            model.showGrid = false
+                        }
+                    } label: {
+                        VStack(spacing: 4) {
+                            PlantView(plant: snap.plant, active: model.mainVisible && recentlyActive(snap), idle: model.mainVisible)
+                                .frame(width: 150, height: 176)
+                            Text(snap.profile.provider.displayName).font(.system(size: 17, weight: .medium, design: .serif))
+                            Text(snap.profile.alias).font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                            Text("\((snap.periods[.today]?.tokens ?? 0).formatted(.number.notation(.compactName))) tokens today")
+                                .font(.caption2).foregroundStyle(.secondary).monospacedDigit()
+                        }
+                        .padding(.vertical, 12).padding(.horizontal, 8)
+                        .frame(maxWidth: .infinity)
+                        .background(RoundedRectangle(cornerRadius: 18).fill(Color.primary.opacity(isSelected ? 0.07 : hovered == snap.profile.id ? 0.05 : 0.025)))
+                        .overlay(RoundedRectangle(cornerRadius: 18).strokeBorder(isSelected ? forest.opacity(0.45) : .clear, lineWidth: 1.2))
+                        .contentShape(RoundedRectangle(cornerRadius: 18))
+                        .scaleEffect(hovered == snap.profile.id && !reduceMotion ? 1.02 : 1)
+                    }
+                    .buttonStyle(.plain)
+                    .onHover { inside in withAnimation(reduceMotion ? nil : .easeOut(duration: 0.15)) { hovered = inside ? snap.profile.id : (hovered == snap.profile.id ? nil : hovered) } }
+                    .accessibilityLabel("\(snap.profile.provider.displayName), \(snap.profile.alias)")
+                    .accessibilityHint("Opens this plant")
+                }
+            }
+            .padding(.horizontal, 22).padding(.top, 4)
+            Text(model.snapshots.count == 1 ? "1 plant" : "\(model.snapshots.count) plants")
+                .font(.caption).foregroundStyle(.secondary).padding(.vertical, 18)
+        }
+    }
+    private func recentlyActive(_ snap: AccountSnapshot) -> Bool {
+        snap.lastActivity.map { Date().timeIntervalSince($0) >= 0 && Date().timeIntervalSince($0) < 90 } ?? false
     }
 }
 
@@ -344,19 +457,12 @@ private struct TrackpadNavigation: NSViewRepresentable {
 private final class ScrollNavigationView: NSView {
     var navigate: (Int) -> Void
     private var monitor: Any?
-    private var accumulation = 0.0
-    private var lastNavigation = Date.distantPast
+    private let gate = SwipeGate()
     init(navigate: @escaping (Int) -> Void) {
         self.navigate = navigate; super.init(frame: .zero)
         monitor = NSEvent.addLocalMonitorForEvents(matching: .scrollWheel) { [weak self] event in
-            guard let self, event.window === self.window,
-                  abs(event.scrollingDeltaX) > abs(event.scrollingDeltaY) * 1.5,
-                  Date().timeIntervalSince(self.lastNavigation) > 0.6 else { return event }
-            self.accumulation += event.scrollingDeltaX
-            if abs(self.accumulation) > 65 {
-                self.navigate(self.accumulation > 0 ? -1 : 1)
-                self.accumulation = 0; self.lastNavigation = Date()
-            }
+            guard let self, event.window === self.window else { return event }
+            if let direction = MainActor.assumeIsolated({ self.gate.direction(for: event, threshold: 65) }) { self.navigate(direction) }
             return event
         }
     }

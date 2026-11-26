@@ -55,20 +55,21 @@ Para reiniciar el estado de desarrollo: `rm -rf ~/Library/Application\ Support/P
 - **Precios:** catálogo con Opus, Sonnet y Haiku 5.5, incluidos los dos tramos de Haiku según el largo del prompt. `codex-auto-review` queda sin precio a propósito.
 - **Motor de la planta:**
   - La calibración sigue la mediana observada hasta tener 7 días activos.
-  - "Pausar el jardín": congela la planta y no acredita el uso registrado durante la pausa, aunque termine el mismo día.
+  - Motor de crecimiento 2: un mismo ritmo para todos (energía diaria = log2(1 + trabajo ÷ 10 M), máximo 3; el trabajo pondera lecturas de caché ×0,1 y salida ×5). Crecer cuesta energía y marchitarse es rápido: sin cambio el primer día sin uso, luego −0,18 por día, mínimo 0,15; se recupera en unos 3 días de uso. No hay pausa ni renombrar plantas. Detalle en `docs/ENGINE.md`.
   - Las ramas crecen equilibradas.
 - **App:**
   - Arranque AppKit puro (ya no aparece la ventana vacía "Pot Settings") y menú mínimo para los atajos.
   - La cuenta con sesión iniciada ya no crea una planta vacía.
   - La primera importación es rápida; los escaneos se agrupan y solo se reprograman si avanzan.
-  - Períodos Today / 7 days / 30 days / All, cobertura, exportación JSON sin identificadores, selector de esquina en el onboarding y en Ajustes, y submenú Presentation y Pausar en la barra.
+  - Períodos Today / 7 days / 30 days / All, cobertura, exportación JSON sin identificadores, selector de esquina en el onboarding y en Ajustes, y submenú Presentation en la barra.
   - Ilustración nativa con el estilo de la landing: Codex como eucalipto en maceta salvia y Claude con hojas finas en terracota; salud visible y siete etapas de flor.
 - **Kit:** `docs/BETA.md` con la plantilla de issue, `docs/RELEASE.md` y `docs/MAC_QA.md`.
 
 ## Lo que falta (en orden)
 
 1. **QA interactiva en el Mac** (`docs/MAC_QA.md`). Nunca se probó con clics reales:
-   - Hover: que aparezcan la X y las flechas, y que pulsarlas no abra la app.
+   - Deslizar con dos dedos sobre la planta flotante cambia de planta (una por gesto). En la ventana: flechas junto al nombre, puntos de página, cuadrícula del jardín (⌘G) con movimiento sutil, y en Ajustes las cuentas conectadas (email, método y plan).
+   - Hover: que aparezca la X (círculo blanco con borde negro, arriba a la derecha de la planta) y que pulsarla oculte la planta sin abrir la app. En el escritorio no hay flechas: las plantas se cambian dentro de Pot.
    - Clic en la planta: abre la app con ese perfil.
    - Arrastre y posición guardada.
    - Clics que atraviesan las zonas transparentes.
@@ -79,12 +80,11 @@ Para reiniciar el estado de desarrollo: `rm -rf ~/Library/Application\ Support/P
    - Suspensión y reactivación.
    - Inicio de sesión desde `/Applications`.
    - VoiceOver y movimiento reducido.
-   - Pausa y reanudación, y la exportación.
+   - La exportación.
 
    Corrige lo que falle con pruebas y capturas solo de las ventanas de Pot (`screencapture -l <windowID>`).
 2. **Ajustes de producto con evidencia de la beta** (`docs/BETA.md`):
-   - Hoy la energía llega al máximo con un día "normal" (la mediana); evaluar un percentil más alto.
-   - La primera flor aparece en ~7–10 días; el documento sugiere "semanas".
+   - Ajustar el día de referencia (10 M unidades de trabajo) y la velocidad de marchitamiento con el uso real de la beta.
    - Precio de `codex-auto-review`.
    - Hay mucho espacio vacío sobre las plantas pequeñas en la ventana principal.
    - Si conviene un selector de esquina más visual.

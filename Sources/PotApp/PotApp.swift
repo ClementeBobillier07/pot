@@ -55,6 +55,8 @@ final class PotDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         if !model.onboarded { openMain() } else { model.refreshDetection() }
         // Development/QA convenience: `swift run Pot --show-window` opens the garden directly.
         if CommandLine.arguments.contains("--show-window") { openMain() }
+        if CommandLine.arguments.contains("--show-grid") { model.showGrid = true; openMain() }
+        if CommandLine.arguments.contains("--show-settings") { model.showSettings = true; openMain() }
     }
 
     func openMain() {
@@ -79,7 +81,6 @@ final class PotDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         }
         presentation.submenu = modes
         menu.addItem(presentation)
-        menu.addItem(withTitle: model.gardenPaused ? "Resume garden" : "Pause garden", action: #selector(togglePause), keyEquivalent: "")
         menu.addItem(withTitle: "Settings…", action: #selector(showSettings), keyEquivalent: ",")
         menu.addItem(.separator())
         menu.addItem(withTitle: "Quit Pot", action: #selector(quitPot), keyEquivalent: "q")
@@ -89,7 +90,7 @@ final class PotDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         statusItem.menu = nil
     }
     /// Invisible for an accessory app, but required for standard key equivalents
-    /// (copy/paste in the alias field, ⌘W, ⌘Q) once there is no SwiftUI scene.
+    /// (copy/paste, ⌘W, ⌘Q) once there is no SwiftUI scene.
     private static func makeMainMenu() -> NSMenu {
         let main = NSMenu()
         let appItem = NSMenuItem(); let appMenu = NSMenu()
@@ -112,7 +113,6 @@ final class PotDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     @objc private func showMain() { openMain() }
     @objc private func showSettings() { model.showSettings = true; openMain() }
     @objc private func togglePlant() { model.toggleFloating() }
-    @objc private func togglePause() { model.gardenPaused.toggle() }
     @objc private func choosePresentation(_ sender: NSMenuItem) {
         guard let raw = sender.representedObject as? String, let mode = DisplayMode(rawValue: raw) else { return }
         model.mode = mode

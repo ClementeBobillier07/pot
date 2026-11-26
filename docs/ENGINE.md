@@ -1,4 +1,20 @@
-# Procedural plant engine v1
+# Procedural plant engine (v2, 2026-11-26)
+
+## Growth and wilting (engine 2, current)
+
+One rhythm for everyone, chosen by the owner: no personal calibration.
+
+- **Work of a day** (work units) = new input + cache writes + cache reads ÷ 10 + output × 5, summed over the day's calls. The weights follow the usual price ratios between categories without depending on the model, so long cached contexts do not dominate and expensive models do not grow faster.
+- **Daily energy** = log2(1 + work ÷ 10 M), at most 3. 10 M (a reference day, between a measured light Codex day of ~1.7 M and a heavy Claude Code day of ~20 M) gives 1; 1.5 M gives 0.2; 70 M or more gives 3. The reference is a hypothesis to tune in the beta (`PlantEngine.referenceDailyWork`).
+- **Growth costs energy.** Energy is banked as the day's work is observed, flows into expanding leaves and opening buds, and pays for new organs: leaf 0.35, branch 0.8 (from maturity 3), flower 1.2 (from maturity 12, health ≥ 0.75). Once flowering age is reached, 1.2 is kept for the next bud. Typical renders (weekdays only): light use adds a few leaves in 3 months; a reference day flowers around day 60; heavy use flowers around day 30 and grows taller.
+- **Wilting.** The first day without use changes nothing; then health falls 0.18 per idle day (2 days ≈ 0.81, 3 ≈ 0.63, 4 ≈ 0.45, a week → 0.15) and never goes below 0.15: wilted, never dead. Leaves droop and yellow with health. Below 0.6 no new organs appear; growth stops entirely near 0.35.
+- **Recovery.** Days with use restore health at ≈ 0.3/day, up to 0.42 on fuller days: about three days of coding bring a wilted plant back. Missing or unreadable logs freeze health (a reading problem is not a day off). There is no pause: a trip simply wilts the plant.
+- Plants from engine 1 are re-grown from their birth with these rules (same seed and birth date).
+
+`Pot --render-plants DIR` renders light / typical / heavy rhythms and the wilting sequence from synthetic usage.
+
+## Engine 1 (historical)
+
 
 `PlantState` is a Codable snapshot; seed plus serial generate stable SplitMix-style values without system randomness during rendering. Every organ has a stable identifier, birth/age, bounded current and maximum size, position, orientation, geometry/palette variant, health, growth rate and independent maturation. Coordinates are normalized; soil is (0.5, 0.80). A branch segment's current tip is `endpoint`; `endX/endY` are its fully grown tip. Leaves attach along mature segments and flowers attach to their tips.
 

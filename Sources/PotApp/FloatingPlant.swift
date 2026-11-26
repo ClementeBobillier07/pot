@@ -55,7 +55,7 @@ final class FloatingPlantController {
     private func update() {
         let width = CGFloat(model.plantSize)
         if lastSize != width {
-            panel.setContentSize(NSSize(width: width + 32, height: width * 1.25 + 36))
+            panel.setContentSize(NSSize(width: width + 32, height: width * 1.25 + 8))
             lastSize = width; clampToScreens()
         }
         let wantsVisible = model.floatingVisible
@@ -123,12 +123,15 @@ final class FloatingPlantController {
         guard panel.isVisible, let plant = model.selected?.plant else { return }
         let point = panel.convertPoint(fromScreen: NSEvent.mouseLocation)
         let insideWindow = NSRect(origin: .zero, size: panel.frame.size).contains(point)
+        let w = CGFloat(model.plantSize), s = w / 320
+        let normalized = CGPoint(x: (point.x - 16) / s, y: (panel.frame.height - point.y - 4) / s)
         let hit: Bool
         if interaction.hovered && insideWindow {
-            hit = true // Keep the controls reachable between leaves and their buttons.
+            // Keep the close button reachable: stay hovered inside the plant's bounds plus the
+            // button and a small margin, so empty transparent space elsewhere still passes clicks through.
+            let zone = PlantLayout.visibleBounds(plant).insetBy(dx: -22 / s, dy: -26 / s)
+            hit = zone.contains(normalized)
         } else {
-            let w = CGFloat(model.plantSize), s = w / 320
-            let normalized = CGPoint(x: (point.x - 16) / s, y: (panel.frame.height - point.y - 4) / s)
             hit = insideWindow && plantContains(normalized, plant: plant)
         }
         if interaction.hovered != hit { interaction.hovered = hit }
@@ -172,50 +175,77 @@ private struct FloatingPlantView: View {
     var body: some View {
         ZStack(alignment: .topTrailing) {
             if let selected = model.selected {
-                VStack(spacing: 0) {
-                    PlantView(plant: selected.plant, active: model.floatingVisible && recentlyActive(selected))
-                        .frame(width: model.plantSize, height: model.plantSize * 1.25)
-                        .overlay(PlantDragSurface(clicked: { model.openMain?() }, moved: moved))
-                        .accessibilityAction { model.openMain?() }
-                    HStack(spacing: 34) {
-                        if model.snapshots.count > 1 {
-                            Button { model.navigate(-1) } label: { Image(systemName: "chevron.left") }.accessibilityLabel("Previous plant")
-                            Button { model.navigate(1) } label: { Image(systemName: "chevron.right") }.accessibilityLabel("Next plant")
-                        }
-                    }.frame(height: 28).opacity(interaction.hovered ? 1 : 0).allowsHitTesting(interaction.hovered)
-                }.padding(.horizontal, 16).padding(.top, 4)
-                Button { model.hideFloating() } label: {
-                    Image(systemName: "xmark").font(.system(size: 10, weight: .semibold)).frame(width: 24, height: 24)
-                }.padding(.trailing, 5).opacity(interaction.hovered ? 1 : 0).allowsHitTesting(interaction.hovered)
-                    .accessibilityLabel("Hide floating plant")
+                PlantView(plant: selected.plant, active: model.floatingVisible && recentlyActive(selected))
+                    .frame(width: model.plantSize, height: model.plantSize * 1.25)
+                    .id(selected.profile.id)
+                    .transition(reduceMotion ? .opacity : PlantSwitch.transition(direction: model.navigationDirection))
+                    .overlay(PlantDragSurface(clicked: { model.showGrid = false; model.showSettings = false; model.openMain?() }, moved: moved,
+                                              navigate: { model.navigate($0) }))
+                    .accessibilityAction { model.openMain?() }
+                    .padding(.horizontal, 16).padding(.top, 4)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+                // Only control on the desktop: a close button just above the plant's top-right edge.
+                // Plants are switched inside Pot, not from the floating plant.
+                CloseBadge { model.hideFloating() }
+                    .position(closeCenter(selected.plant))
+                    .opacity(interaction.hovered ? 1 : 0).allowsHitTesting(interaction.hovered)
             }
         }
-        .frame(width: model.plantSize + 32, height: model.plantSize * 1.25 + 36)
+        .frame(width: model.plantSize + 32, height: model.plantSize * 1.25 + 8)
         .buttonStyle(.plain)
-        .foregroundStyle(model.appearance == "dark" ? Color.white.opacity(0.8) : Color.primary.opacity(0.65))
         .animation(reduceMotion ? nil : .easeInOut(duration: 0.18), value: interaction.hovered)
+        .animation(reduceMotion ? nil : .easeInOut(duration: 0.28), value: model.selectedID)
         .preferredColorScheme(model.colorScheme)
         .background(Color.clear)
+    }
+    private func closeCenter(_ plant: PlantState) -> CGPoint {
+        let s = model.plantSize / 320
+        let bounds = PlantLayout.visibleBounds(plant)
+        let x = 16 + min(320, bounds.maxX) * s + 6
+        let y = 4 + bounds.minY * s - 6
+        return CGPoint(x: min(model.plantSize + 32 - 13, max(13, x)), y: max(13, y))
     }
     private func recentlyActive(_ selected: AccountSnapshot) -> Bool {
         selected.lastActivity.map { Date().timeIntervalSince($0) >= 0 && Date().timeIntervalSince($0) < 90 } ?? false
     }
 }
 
+/// Black ✕ in a white circle with a black outline: readable over light and dark desktops.
+private struct CloseBadge: View {
+    let action: () -> Void
+    var body: some View {
+        Button(action: action) {
+            ZStack {
+                Circle().fill(Color.white)
+                Circle().strokeBorder(Color.black, lineWidth: 1.5)
+                Image(systemName: "xmark").font(.system(size: 9, weight: .bold)).foregroundStyle(Color.black)
+            }
+            .frame(width: 22, height: 22)
+            .shadow(color: .black.opacity(0.18), radius: 2, y: 1)
+            .contentShape(Circle())
+        }
+        .buttonStyle(.plain)
+        .help("Hide floating plant")
+        .accessibilityLabel("Hide floating plant")
+    }
+}
+
 private struct PlantDragSurface: NSViewRepresentable {
     let clicked: () -> Void
     let moved: () -> Void
-    func makeNSView(context: Context) -> DragSurfaceView { DragSurfaceView(clicked: clicked, moved: moved) }
-    func updateNSView(_ view: DragSurfaceView, context: Context) { view.clicked = clicked; view.moved = moved }
+    let navigate: (Int) -> Void
+    func makeNSView(context: Context) -> DragSurfaceView { DragSurfaceView(clicked: clicked, moved: moved, navigate: navigate) }
+    func updateNSView(_ view: DragSurfaceView, context: Context) { view.clicked = clicked; view.moved = moved; view.navigate = navigate }
 }
 private final class DragSurfaceView: NSView {
     var clicked: () -> Void
     var moved: () -> Void
+    var navigate: (Int) -> Void
     private var startMouse = NSPoint.zero
     private var startOrigin = NSPoint.zero
     private var dragged = false
-    init(clicked: @escaping () -> Void, moved: @escaping () -> Void) {
-        self.clicked = clicked; self.moved = moved; super.init(frame: .zero)
+    init(clicked: @escaping () -> Void, moved: @escaping () -> Void, navigate: @escaping (Int) -> Void) {
+        self.clicked = clicked; self.moved = moved; self.navigate = navigate; super.init(frame: .zero)
         setAccessibilityElement(false)
     }
     required init?(coder: NSCoder) { nil }
@@ -228,5 +258,10 @@ private final class DragSurfaceView: NSView {
         if dragged { window?.setFrameOrigin(NSPoint(x: startOrigin.x + dx, y: startOrigin.y + dy)) }
     }
     override func mouseUp(with event: NSEvent) { if dragged { moved() } else { clicked() } }
+    /// Two-finger horizontal swipe over the plant switches plants, like in the Pot window.
+    /// One switch per gesture: momentum is ignored and a short cooldown prevents skipping plants.
+    override func scrollWheel(with event: NSEvent) {
+        if let direction = MainActor.assumeIsolated({ SwipeGate.floating.direction(for: event) }) { navigate(direction) }
+    }
 }
 #endif

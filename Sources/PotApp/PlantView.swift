@@ -1,4 +1,5 @@
 #if os(macOS)
+import AppKit
 import SwiftUI
 import PotCore
 
@@ -57,11 +58,80 @@ enum PlantLayout {
         let vertical = (anchor.y - 4) / max(1, anchor.y - minY)
         return max(0.72, min(1, horizontal, vertical))
     }
+
+    /// Visible extent of pot and organs in the 320×400 canvas, after the fit zoom.
+    /// The floating panel uses it to place its close button and its hover zone.
+    static func visibleBounds(_ plant: PlantState) -> CGRect {
+        var minX = 88.0, maxX = 232.0, minY = 318.0, maxY = 396.0 // pot
+        for organ in plant.organs {
+            let end = organ.endpoint
+            let reach: Double
+            switch organ.kind {
+            case .stem, .branch: reach = 4
+            case .leaf: reach = 9 + organ.size * 5.5
+            case .flower: reach = 18 + organ.size * 1.9
+            }
+            for p in [(organ.x, organ.y), (end.x, end.y)] {
+                minX = min(minX, p.0 * 320 - reach); maxX = max(maxX, p.0 * 320 + reach); minY = min(minY, p.1 * 400 - reach)
+            }
+        }
+        let fit = fitScale(plant)
+        func t(_ x: Double, _ y: Double) -> CGPoint { CGPoint(x: anchor.x + (x - anchor.x) * fit, y: anchor.y + (y - anchor.y) * fit) }
+        let a = t(minX, minY), b = t(maxX, maxY)
+        return CGRect(x: max(0, a.x), y: max(0, a.y), width: min(320, b.x) - max(0, a.x), height: min(400, b.y) - max(0, a.y))
+    }
+}
+
+/// Turns a stream of scroll events into at most one plant switch per trackpad gesture.
+/// It must outlive the views that receive the events: switching plants recreates the plant
+/// view (and its event surface) mid-gesture, and a fresh per-view state would switch again.
+@MainActor
+final class SwipeGate {
+    static let floating = SwipeGate()
+    private var accumulation = 0.0
+    private var switched = false
+    private var lastSwitch = Date.distantPast
+    private var lastEvent = Date.distantPast
+    /// Returns −1 / +1 when this event completes a switch, otherwise nil.
+    func direction(for event: NSEvent, threshold: Double = 45) -> Int? {
+        let now = Date()
+        defer { lastEvent = now }
+        if event.phase.contains(.began) || event.phase.contains(.mayBegin) { accumulation = 0; switched = false }
+        // A gesture that never reported its end (window changed under the fingers) expires.
+        if switched && now.timeIntervalSince(lastEvent) > 0.35 { switched = false; accumulation = 0 }
+        if event.phase.contains(.ended) || event.phase.contains(.cancelled) { accumulation = 0; return nil }
+        guard event.momentumPhase.isEmpty, !switched else { return nil }
+        let dx = event.scrollingDeltaX, dy = event.scrollingDeltaY
+        guard abs(dx) > abs(dy) * 1.2 else { return nil }
+        let phased = !event.phase.isEmpty
+        accumulation += event.hasPreciseScrollingDeltas ? dx : dx * 12
+        // Mouse wheels have no phases: fall back to a cooldown.
+        guard abs(accumulation) > threshold, phased || now.timeIntervalSince(lastSwitch) > 0.7 else { return nil }
+        let result = accumulation > 0 ? -1 : 1
+        switched = phased
+        accumulation = 0
+        lastSwitch = now
+        return result
+    }
+}
+
+/// Switching plants: the old one slides out and fades quickly, the new one slides in from the
+/// side the gesture points to, so two pots never sit blended on top of each other.
+enum PlantSwitch {
+    static func transition(direction: Int) -> AnyTransition {
+        let d: CGFloat = direction < 0 ? -1 : 1
+        return .asymmetric(
+            insertion: .offset(x: 46 * d).combined(with: .opacity).animation(.easeOut(duration: 0.26).delay(0.08)),
+            removal: .offset(x: -46 * d).combined(with: .opacity).animation(.easeIn(duration: 0.14)))
+    }
 }
 
 struct PlantView: View {
     let plant: PlantState
     var active = false
+    /// Gentle continuous breathing while a window shows the plant. Off for the always-on
+    /// floating panel to keep idle energy near zero; activity pulses still apply there.
+    var idle = false
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var dancing = false
     @State private var oldSizes: [String: Double] = [:]
@@ -69,9 +139,9 @@ struct PlantView: View {
     @State private var blend = 1.0
 
     var body: some View {
-        TimelineView(.animation(minimumInterval: 1.0 / 24, paused: !dancing || reduceMotion)) { timeline in
+        TimelineView(.animation(minimumInterval: dancing ? 1.0 / 24 : 1.0 / 15, paused: !(dancing || idle) || reduceMotion)) { timeline in
             PlantDrawing(plant: plant, oldSizes: oldSizes, oldMaturation: oldMaturation, blend: blend,
-                         sway: dancing && !reduceMotion ? sin(timeline.date.timeIntervalSinceReferenceDate * 3.8) * 0.018 : 0)
+                         sway: reduceMotion ? 0 : sway(at: timeline.date.timeIntervalSinceReferenceDate))
         }
         .onAppear { if active { pulse() } }
         .onChange(of: active) { _, value in if value { pulse() } else { dancing = false } }
@@ -90,7 +160,15 @@ struct PlantView: View {
         }
         .accessibilityElement(children: .ignore)
         .accessibilityLabel("\(plant.provider.displayName) plant")
-        .accessibilityValue(plant.health > 0.65 ? "Growing peacefully" : "Resting. Ready to recover when you return.")
+        .accessibilityValue(plant.health > 0.8 ? "Growing peacefully" : plant.health > 0.45 ? "A little thirsty" : "Wilted. A few days of work will bring it back.")
+    }
+    /// Activity dance, or a slow breeze unique to each plant (phase and tempo from its seed).
+    private func sway(at t: Double) -> Double {
+        if dancing { return sin(t * 3.8) * 0.018 }
+        guard idle else { return 0 }
+        let phase = Double(plant.seed % 997) / 997 * 2 * .pi
+        let tempo = 0.9 + Double(plant.seed % 7) * 0.05
+        return sin(t * tempo + phase) * 0.006 + sin(t * tempo * 2.3 + phase) * 0.0025
     }
     private func pulse() {
         guard !reduceMotion else { return }
@@ -144,7 +222,7 @@ private struct PlantDrawing: View, Animatable {
             }
 
             // Stems and branches: gently arching strokes, like the landing's quadratic shoots.
-            let stemColor = palette.stem.mixed(PlantPalette.tired, (1 - health) * 0.5).color
+            let stemColor = palette.stem.mixed(PlantPalette.tired, (1 - health) * 0.7).color
             for organ in plant.organs where organ.kind == .stem || organ.kind == .branch {
                 let start = point(organ.x, organ.y)
                 let end = point(organ.endpoint.x, organ.endpoint.y)
@@ -183,7 +261,7 @@ private struct PlantDrawing: View, Animatable {
                 let end = point(organ.endpoint.x, organ.endpoint.y)
                 let heading = atan2(end.x - start.x, -(end.y - start.y))
                 let length = 8 + 9 * min(1, organ.maturation)
-                let tone = palette.leaves[(abs(organ.colorIndex) + 2) % palette.leaves.count].mixed(PlantPalette.tired, (1 - health) * 0.65)
+                let tone = palette.leaves[(abs(organ.colorIndex) + 2) % palette.leaves.count].mixed(PlantPalette.tired, (1 - health) * 0.9)
                 for spread in [-0.45, 0.4] {
                     var tip = layer
                     tip.translateBy(x: end.x, y: end.y)
@@ -199,7 +277,7 @@ private struct PlantDrawing: View, Animatable {
                 leafLayer.translateBy(x: anchor.x, y: anchor.y)
                 // Low health lowers turgor: leaves droop away from vertical.
                 let side: Double = organ.orientation >= 0 ? 1 : -1
-                leafLayer.rotate(by: .radians(organ.orientation + side * (1 - health) * 0.55))
+                leafLayer.rotate(by: .radians(organ.orientation + side * (1 - health) * 0.95))
                 let length = 9 + currentSize(organ) * 5.5
                 let variation = [1.0, 0.9, 1.1][abs(organ.shape) % 3]
                 func p(_ a: Double, _ c: Double) -> CGPoint { CGPoint(x: c * length * variation, y: -a * length) }
@@ -207,7 +285,7 @@ private struct PlantDrawing: View, Animatable {
                 let ageing = max(0, min(1, (days - 24) / 11)) * 0.45
                 let tone = palette.leaves[abs(organ.colorIndex) % palette.leaves.count]
                     .mixed(PlantPalette.autumn, ageing)
-                    .mixed(PlantPalette.tired, (1 - health) * 0.65)
+                    .mixed(PlantPalette.tired, (1 - health) * 0.9)
                 leafLayer.fill(leafPath(length: length, variation: variation), with: .color(tone.color))
                 if length > 26 {
                     // A faint midrib on grown leaves; invisible on seedlings.
