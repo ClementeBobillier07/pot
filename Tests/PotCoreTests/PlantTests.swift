@@ -27,8 +27,8 @@ final class PlantTests: XCTestCase {
         for day in 0..<365 {
             // Two useful sessions, with ordinary weekend gaps.
             if day % 7 < 5 {
-                events.append(event(Double(day) * 86400 + 9 * 3600, 80_000))
-                events.append(event(Double(day) * 86400 + 14 * 3600, 50_000))
+                events.append(event(Double(day) * 86400 + 9 * 3600, 12_000_000))
+                events.append(event(Double(day) * 86400 + 14 * 3600, 8_000_000))
             }
             let now = start.addingTimeInterval(Double(day + 1) * 86400)
             PlantEngine.advance(state: &first, events: events, now: now)
@@ -73,55 +73,66 @@ final class PlantTests: XCTestCase {
         PlantEngine.advance(state: &single, events: [sample], now: end.addingTimeInterval(365 * 86400))
         XCTAssertLessThanOrEqual(single.historicalMaturity, snapshot.historicalMaturity + snapshot.reserve + 0.00001)
         XCTAssertEqual(single.days.count, 0)
-        XCTAssertGreaterThanOrEqual(single.health, 0.3)
+        // A year without use leaves the plant wilted, never dead.
+        XCTAssertEqual(single.health, PlantEngine.minimumHealth, accuracy: 0.00001)
     }
 
-    func testLeavesGrowIndividuallyAndCalibrationCapsExtremeUsage() {
+    func testLeavesGrowIndividuallyAndDailyEnergyIsCapped() {
         var state = PlantState(seed: 42, provider: .codex, createdAt: start)
         let sample = event(60, 1_000_000_000)
         PlantEngine.advance(state: &state, events: [sample], now: start.addingTimeInterval(12 * 3600))
         let leaves = state.organs.filter { $0.kind == .leaf }
         XCTAssertGreaterThan(leaves[0].size, 1)
         XCTAssertNotEqual(leaves[0].size, leaves[1].size)
-        let initialBudget = 0.25 + 0.75 * 12 / 72
-        XCTAssertLessThanOrEqual(state.days.first!.credited, initialBudget)
-        XCTAssertLessThanOrEqual(state.historicalMaturity + state.reserve, initialBudget + 0.00001)
+        XCTAssertLessThanOrEqual(state.days.first!.credited, PlantEngine.maximumDailyEnergy + 0.00001)
+        XCTAssertLessThanOrEqual(state.historicalMaturity + state.reserve, PlantEngine.maximumDailyEnergy + 0.00001)
     }
 
-    func testCalibrationUsesSeventyTwoElapsedHoursAcrossMidnight() {
-        let nearMidnight = start.addingTimeInterval(86400 - 60)
-        var state = PlantState(seed: 77, provider: .codex, createdAt: nearMidnight)
-        let recent = UsageEvent(id: "after-midnight", provider: .codex, timestamp: nearMidnight.addingTimeInterval(120), model: "synthetic", input: 1_000_000_000, output: 0)
-        PlantEngine.advance(state: &state, events: [recent], now: nearMidnight.addingTimeInterval(3600))
-        XCTAssertLessThan(state.days.first!.credited, 0.27, "Crossing midnight must not skip a calibration day")
-        let later = UsageEvent(id: "third-day", provider: .codex, timestamp: nearMidnight.addingTimeInterval(70 * 3600), model: "synthetic", input: 1_000_000_000, output: 0)
-        PlantEngine.advance(state: &state, events: [recent, later], now: nearMidnight.addingTimeInterval(71 * 3600))
-        XCTAssertLessThan(state.days.last!.credited, 1, "The first 72 elapsed hours remain calibrated even across four UTC dates")
-        PlantEngine.advance(state: &state, events: [recent, later], now: nearMidnight.addingTimeInterval(73 * 3600))
-        XCTAssertEqual(state.days.last!.credited, 1, accuracy: 0.00001)
+    func testOneGlobalRhythmHeavyUseGrowsVisiblyFasterThanLightUse() {
+        XCTAssertEqual(PlantEngine.dailyEnergy(work: PlantEngine.referenceDailyWork), 1, accuracy: 0.00001)
+        XCTAssertLessThan(PlantEngine.dailyEnergy(work: 1_000_000), 0.15)
+        XCTAssertEqual(PlantEngine.dailyEnergy(work: 1e12), PlantEngine.maximumDailyEnergy)
+        // Cache reads weigh a tenth, output five times: long cached contexts don't dominate.
+        let call = UsageEvent(id: "w", provider: .claude, timestamp: start, model: "m", input: 100, output: 10, cacheRead: 1_000, cacheWrite: 50)
+        XCTAssertEqual(PlantEngine.workUnits(call), 100 + 50 + 100 + 50)
+        var heavy = PlantState(seed: 4, provider: .codex, createdAt: start)
+        var light = PlantState(seed: 4, provider: .codex, createdAt: start)
+        let heavyEvents = (0..<21).map { event(Double($0) * 86400 + 10 * 3600, 40_000_000, id: "h\($0)") }
+        let lightEvents = (0..<21).map { event(Double($0) * 86400 + 10 * 3600, 1_000_000, id: "l\($0)") }
+        let end = start.addingTimeInterval(21 * 86400)
+        PlantEngine.advance(state: &heavy, events: heavyEvents, now: end)
+        PlantEngine.advance(state: &light, events: lightEvents, now: end)
+        XCTAssertGreaterThan(heavy.historicalMaturity, light.historicalMaturity * 4)
+        XCTAssertGreaterThan(heavy.organs.filter { $0.kind == .leaf }.count, light.organs.filter { $0.kind == .leaf }.count + 5)
+        XCTAssertGreaterThan(light.health, 0.95, "Light daily use is still care: no wilting")
     }
 
-    func testWeekendGraceDataGapFreezeRecoveryAndPersistentMaturity() {
+    func testWiltingShowsFromTheSecondIdleDayFloorsAndRecovers() {
         var state = PlantState(seed: 10, provider: .codex, createdAt: start)
-        let work = event(3600, 100_000)
-        PlantEngine.advance(state: &state, events: [work], now: start.addingTimeInterval(2 * 86400))
-        XCTAssertEqual(state.health, 1, accuracy: 0.00001)
-        let initialHealth = state.health
-        PlantEngine.advance(state: &state, events: [work], now: start.addingTimeInterval(90 * 86400), dataAvailable: false)
-        XCTAssertEqual(state.health, initialHealth)
-        PlantEngine.advance(state: &state, events: [work], now: start.addingTimeInterval(120 * 86400))
-        XCTAssertLessThan(state.health, 0.5)
-        let unhealthy = state.health
+        let work = event(3600, 10_000_000)
+        PlantEngine.advance(state: &state, events: [work], now: start.addingTimeInterval(86400 + 3600))
+        XCTAssertEqual(state.health, 1, accuracy: 0.00001, "One day without use is unchanged")
+        PlantEngine.advance(state: &state, events: [work], now: start.addingTimeInterval(2 * 86400 + 3600))
+        XCTAssertLessThan(state.health, 0.85, "Two days without use are visible")
+        PlantEngine.advance(state: &state, events: [work], now: start.addingTimeInterval(4 * 86400 + 3600))
+        XCTAssertLessThan(state.health, 0.5, "Four days without use look wilted")
+        // Missing or unreadable logs freeze health: a reading problem is not a day off.
+        let frozen = state.health
+        PlantEngine.advance(state: &state, events: [work], now: start.addingTimeInterval(30 * 86400), dataAvailable: false)
+        XCTAssertEqual(state.health, frozen)
+        PlantEngine.advance(state: &state, events: [work], now: start.addingTimeInterval(60 * 86400))
+        XCTAssertEqual(state.health, PlantEngine.minimumHealth, accuracy: 0.00001, "Wilted, never dead")
         let maturity = state.historicalMaturity
-        let returnWork = event(120 * 86400 + 3600, 100_000)
-        PlantEngine.advance(state: &state, events: [work, returnWork], now: start.addingTimeInterval(122 * 86400))
-        XCTAssertGreaterThan(state.health, unhealthy)
+        // A few ordinary days of work bring it back.
+        let comeback = (60..<63).map { event(Double($0) * 86400 + 9 * 3600, 10_000_000, id: "back\($0)") }
+        PlantEngine.advance(state: &state, events: [work] + comeback, now: start.addingTimeInterval(63 * 86400))
+        XCTAssertGreaterThan(state.health, 0.8)
         XCTAssertGreaterThanOrEqual(state.historicalMaturity, maturity)
     }
 
     func testPersistedRestartMatchesUninterruptedState() throws {
         var live = PlantState(seed: 111, provider: .codex, createdAt: start)
-        let events = (0..<40).map { event(Double($0) * 86400 + 9 * 3600, 120_000) }
+        let events = (0..<40).map { event(Double($0) * 86400 + 9 * 3600, 15_000_000) }
         PlantEngine.advance(state: &live, events: events, now: start.addingTimeInterval(20 * 86400))
         var restored = try JSONDecoder().decode(PlantState.self, from: JSONEncoder().encode(live))
         let finish = start.addingTimeInterval(40 * 86400)
@@ -139,61 +150,11 @@ final class PlantTests: XCTestCase {
         // point several coexist at independent stages rather than at one arbitrary day.
         var bestDistinct = 0
         for day in 0..<90 {
-            events.append(event(Double(day) * 86400 + 3600, 150_000))
+            events.append(event(Double(day) * 86400 + 3600, 30_000_000))
             PlantEngine.advance(state: &state, events: events, now: start.addingTimeInterval(Double(day + 1) * 86400))
             let flowers = state.organs.filter { $0.kind == .flower }
             bestDistinct = max(bestDistinct, Set(flowers.map(\.maturation)).count)
         }
         XCTAssertGreaterThan(bestDistinct, 1)
-    }
-    func testPausedGardenFreezesBiologyAndDoesNotBankPausedUsage() {
-        var plant = PlantState(seed: 7, provider: .codex, createdAt: start)
-        var events: [UsageEvent] = []
-        for day in 0..<10 { events.append(event(Double(day) * 86400 + 9 * 3600, 120_000)) }
-        PlantEngine.advance(state: &plant, events: events, now: start.addingTimeInterval(10 * 86400))
-        PlantEngine.setPaused(true, state: &plant, now: start.addingTimeInterval(10 * 86400))
-        let frozen = plant
-        // Two weeks of vacation with heavy usage recorded meanwhile.
-        for day in 10..<24 { events.append(event(Double(day) * 86400 + 9 * 3600, 5_000_000)) }
-        PlantEngine.advance(state: &plant, events: events, now: start.addingTimeInterval(24 * 86400))
-        XCTAssertEqual(plant.organs, frozen.organs)
-        XCTAssertEqual(plant.health, frozen.health)
-        XCTAssertEqual(plant.reserve, frozen.reserve)
-        XCTAssertEqual(plant.historicalMaturity, frozen.historicalMaturity)
-        PlantEngine.setPaused(false, state: &plant, now: start.addingTimeInterval(24 * 86400))
-        XCTAssertNil(plant.pausedAt)
-        // One quiet day after returning: paused usage is not credited and the pause is not dormancy.
-        PlantEngine.advance(state: &plant, events: events, now: start.addingTimeInterval(25 * 86400))
-        XCTAssertLessThanOrEqual(plant.reserve, frozen.reserve + 0.0001)
-        XCTAssertGreaterThan(plant.health, 0.95)
-        // Without the pause, two silent weeks would have lowered health.
-        var unpaused = frozen; unpaused.pausedAt = nil
-        PlantEngine.advance(state: &unpaused, events: Array(events.prefix(10)), now: start.addingTimeInterval(25 * 86400))
-        XCTAssertLessThan(unpaused.health, plant.health)
-    }
-
-    func testPausedStatePersists() throws {
-        var plant = PlantState(seed: 3, provider: .claude, createdAt: start)
-        PlantEngine.setPaused(true, state: &plant, now: start.addingTimeInterval(3600))
-        let decoded = try JSONDecoder().decode(PlantState.self, from: JSONEncoder().encode(plant))
-        XCTAssertEqual(decoded.pausedAt, plant.pausedAt)
-    }
-    func testUsageDuringSameDayPauseIsNotCredited() {
-        var paused = PlantState(seed: 11, provider: .codex, createdAt: start)
-        var control = paused
-        let morning = start.addingTimeInterval(9 * 3600), evening = start.addingTimeInterval(17 * 3600)
-        let events = [event(12 * 3600, 400_000)] // heavy use while paused, same UTC day
-        PlantEngine.advance(state: &paused, events: [], now: morning)
-        PlantEngine.setPaused(true, state: &paused, now: morning)
-        PlantEngine.advance(state: &paused, events: events, now: evening)
-        PlantEngine.setPaused(false, state: &paused, now: evening)
-        PlantEngine.advance(state: &paused, events: events, now: evening.addingTimeInterval(3 * 3600))
-        PlantEngine.advance(state: &control, events: [], now: morning)
-        PlantEngine.setPaused(true, state: &control, now: morning)
-        PlantEngine.advance(state: &control, events: [], now: evening)
-        PlantEngine.setPaused(false, state: &control, now: evening)
-        PlantEngine.advance(state: &control, events: [], now: evening.addingTimeInterval(3 * 3600))
-        XCTAssertEqual(paused.reserve, control.reserve, accuracy: 0.000001)
-        XCTAssertEqual(paused.historicalMaturity, control.historicalMaturity, accuracy: 0.000001)
     }
 }

@@ -34,13 +34,16 @@ public struct PlantOrgan: Codable, Identifiable, Equatable, Sendable {
 
 public struct PlantDay: Codable, Equatable, Sendable {
     public var day: Int
+    /// Work units observed that UTC day (see `PlantEngine.workUnits`).
     public var tokens: Int64
+    /// Reference day used for this day's energy (the global constant since engine 2).
     public var reference: Double
     public var credited: Double
 }
 
 public struct PlantState: Codable, Equatable, Sendable {
-    public var engineVersion = 1
+    /// Engine 2 (2026-11-26): one global rhythm for everyone, wilting from day 2 without use.
+    public var engineVersion = PlantEngine.version
     public var seed: UInt64
     public var provider: Provider
     public var createdAt: Date
@@ -48,7 +51,7 @@ public struct PlantState: Codable, Equatable, Sendable {
     public var historicalMaturity: Double = 0
     public var health: Double = 1
     public var reserve: Double = 0
-    public var reference: Double = 100_000
+    public var reference: Double = PlantEngine.referenceDailyWork
     public var lastActivity: Date?
     public var organs: [PlantOrgan] = []
     public var days: [PlantDay] = []
@@ -59,10 +62,6 @@ public struct PlantState: Codable, Equatable, Sendable {
     public var nextFlower: Date
     public var creditedBeforeDay: Int
     public var lastReliableObservation: Date
-    /// Set while the person has paused the garden (vacation). Biology and deterioration are frozen.
-    public var pausedAt: Date?
-    /// End of the most recent pause. Usage recorded before it is never credited as energy.
-    public var resumedAt: Date?
 
     public init(seed: UInt64, provider: Provider, createdAt: Date) {
         self.seed = seed
@@ -105,52 +104,56 @@ public struct PlantState: Codable, Equatable, Sendable {
     }
 }
 
+/// Growth model (engine 2), the same rhythm for everyone:
+///
+/// * Work of a day, in work units: new input + cache writes + cache reads ÷ 10 + output × 5.
+///   The weights follow the usual price ratios between categories, without depending on the
+///   model, so long cached contexts do not dominate and expensive models do not grow faster.
+/// * Daily energy = log2(1 + work / reference), at most 3. A reference day (10 M units) gives 1;
+///   a light day (1 M) gives 0.14; a very heavy day (70 M+) gives the maximum 3.
+/// * Energy is banked as the day's work is observed and spent on growth; leaves, branches and
+///   flowers cost energy, so light use grows slowly and heavy use grows visibly faster.
+/// * Health: no change during the first day without use; then −0.18 per idle day (2 days ≈ 0.82,
+///   3 ≈ 0.64, 4 ≈ 0.46), never below 0.15. Wilted plants don't grow. Days with use restore it
+///   (≈ +0.4/day on a reference day), so a few days of coding bring it back.
 public enum PlantEngine {
+    public static let version = 2
     public static let maximumLeaves = 32
     public static let maximumFlowers = 6
     public static let maximumBranches = 12
-    public static let maximumReserve = 3.0
-    public static let maximumDailyEnergy = 1.0
+    public static let maximumReserve = 4.0
+    public static let maximumDailyEnergy = 3.0
+    /// A typical day of agent work in work units (hypothesis between a light Codex day of ~1.7 M and
+    /// a heavy Claude Code day of ~20 M measured on real logs; tune with the beta).
+    public static let referenceDailyWork = 10_000_000.0
+    public static let wiltPerIdleDay = 0.18
+    public static let minimumHealth = 0.15
+    public static let recoveryPerActiveDay = 0.3
+    /// Maturity (energy spent on growth) needed before the first bud: ≈ 12 reference days.
+    public static let flowerMaturity = 12.0
+    static let flowerCost = 1.2
     private static let hour = 3600.0
 
-    public static func day(_ date: Date) -> Int { Int(floor(date.timeIntervalSince1970 / 86400)) }
-
-    /// "Pause the garden": freezes growth, ageing and deterioration until resumed. Usage that
-    /// happens while paused still appears in statistics but is never banked as energy, and the
-    /// paused time does not count as dormancy afterwards.
-    public static func setPaused(_ paused: Bool, state: inout PlantState, now: Date) {
-        if paused {
-            guard state.pausedAt == nil else { return }
-            state.pausedAt = max(now, state.lastUpdated)
-            state.lastUpdated = max(now, state.lastUpdated)
-        } else if let since = state.pausedAt {
-            let resumeAt = max(now, state.lastUpdated)
-            let duration = max(0, resumeAt.timeIntervalSince(since))
-            state.pausedAt = nil
-            state.resumedAt = resumeAt
-            state.lastUpdated = resumeAt
-            // Shift biological clocks so the pause is invisible to dormancy and scheduling.
-            state.lastActivity = state.lastActivity.map { $0.addingTimeInterval(duration) }
-            state.lastReliableObservation = state.lastReliableObservation.addingTimeInterval(duration)
-            state.nextBirth = state.nextBirth.addingTimeInterval(duration)
-            state.nextBranch = state.nextBranch.addingTimeInterval(duration)
-            state.nextFlower = state.nextFlower.addingTimeInterval(duration)
-            // Paused days were never observed by the hourly simulation; do not credit them later.
-            state.creditedBeforeDay = max(state.creditedBeforeDay, day(resumeAt) - 1)
-            state.reserve = min(state.reserve, maximumReserve)
-        }
+    /// Work units of one call (provider- and model-independent).
+    public static func workUnits(_ e: UsageEvent) -> Int64 {
+        let value = Double(max(0, e.input)) + Double(max(0, e.cacheWrite)) + Double(max(0, e.cacheRead)) / 10 + Double(max(0, e.output)) * 5
+        return value >= Double(Int64.max) ? Int64.max : Int64(value)
     }
+    public static func dailyEnergy(work: Double) -> Double {
+        min(maximumDailyEnergy, log2(1 + max(0, work) / referenceDailyWork))
+    }
+
+    public static func day(_ date: Date) -> Int { Int(floor(date.timeIntervalSince1970 / 86400)) }
 
     /// Supply a canonical usage snapshot for this profile, not raw line-by-line deltas.
     /// Energy is independent of prices and never credits history predating the plant.
     public static func advance(state: inout PlantState, events: [UsageEvent], now: Date, dataAvailable: Bool = true) {
         guard now > state.lastUpdated else { return }
-        if state.pausedAt != nil { state.lastUpdated = now; return }
         let start = state.lastUpdated
         let highDay = day(now)
         var seen = Set<String>()
         let eligible = events.filter {
-            $0.provider == state.provider && $0.timestamp >= max(state.createdAt, state.resumedAt ?? state.createdAt) && $0.timestamp <= now &&
+            $0.provider == state.provider && $0.timestamp >= state.createdAt && $0.timestamp <= now &&
             day($0.timestamp) > state.creditedBeforeDay && seen.insert($0.id).inserted
         }
         let grouped = Dictionary(grouping: eligible, by: { day($0.timestamp) })
@@ -159,26 +162,15 @@ public enum PlantEngine {
         state.creditedBeforeDay = max(state.creditedBeforeDay, oldest - 1)
         var ledger = Dictionary(uniqueKeysWithValues: state.days.map { ($0.day, $0) })
         for eventDay in grouped.keys.sorted() where eventDay >= oldest {
-            let values = grouped[eventDay]!
-            let total = values.reduce(Int64(0)) { partial, event in
-                let positive = max(0, event.totalTokens)
-                return partial > Int64.max - positive ? Int64.max : partial + positive
+            let total = grouped[eventDay]!.reduce(Int64(0)) { partial, event in
+                let work = workUnits(event)
+                return partial > Int64.max - work ? Int64.max : partial + work
             }
             if var prior = ledger[eventDay] {
                 prior.tokens = max(prior.tokens, total)
                 ledger[eventDay] = prior
             } else {
-                let previous = ledger.values.filter { $0.day < eventDay && $0.day >= eventDay - 30 && $0.tokens > 0 }.map { Double($0.tokens) }.sorted()
-                let median = previous.isEmpty ? 100_000 : previous[previous.count / 2]
-                let confidence = min(1, Double(previous.count) / 7)
-                let target = 100_000 * (1 - confidence) + median * confidence
-                let previousReference = ledger.values.filter { $0.day < eventDay }.sorted { $0.day < $1.day }.last?.reference ?? state.reference
-                // While fewer than seven active days are known (calibration), follow the observed rhythm
-                // directly: real heavy users run ~10^8 tokens/day, which a ±15 %/day limit from the
-                // 100k prior would need weeks to reach, crediting maximum energy every day meanwhile.
-                // After calibration the limit keeps one large or quiet day from swinging the target.
-                let reference = confidence < 1 ? max(10_000, target) : min(previousReference * 1.15, max(previousReference * 0.85, max(10_000, target)))
-                ledger[eventDay] = PlantDay(day: eventDay, tokens: total, reference: reference, credited: 0)
+                ledger[eventDay] = PlantDay(day: eventDay, tokens: total, reference: referenceDailyWork, credited: 0)
             }
         }
         // Simulate no more than 45 days in hourly ticks. Earlier absences age analytically.
@@ -197,7 +189,7 @@ public enum PlantEngine {
             let event = sortedEvents[activityIndex]
             let eventDay = day(event.timestamp)
             let previous = observedTokens[eventDay, default: 0]
-            let positive = max(0, event.totalTokens)
+            let positive = workUnits(event)
             observedTokens[eventDay] = previous > Int64.max - positive ? Int64.max : previous + positive
             if event.totalTokens > 0 { state.lastActivity = max(state.lastActivity ?? state.createdAt, event.timestamp) }
             activityIndex += 1
@@ -209,26 +201,26 @@ public enum PlantEngine {
                 let event = sortedEvents[activityIndex]
                 let eventDay = day(event.timestamp)
                 let old = observedTokens[eventDay, default: 0]
-                observedTokens[eventDay] = old > Int64.max - max(0, event.totalTokens) ? Int64.max : old + max(0, event.totalTokens)
+                let work = workUnits(event)
+                observedTokens[eventDay] = old > Int64.max - work ? Int64.max : old + work
                 if event.totalTokens > 0 { state.lastActivity = max(state.lastActivity ?? state.createdAt, event.timestamp) }
                 activityIndex += 1
             }
             // Grants are released only after their day has been observed. This
             // avoids filling reserve with an entire year of logs at once.
+            var todayEnergy = 0.0
             if var record = ledger[currentDay] {
-                // Calibration follows 72 elapsed hours, not UTC midnight crossings.
-                // UTC still anchors the daily energy cap and deduplication journal.
-                let elapsedSinceBirth = max(0, next.timeIntervalSince(state.createdAt))
-                let calibration = min(1, 0.25 + 0.75 * elapsedSinceBirth / (72 * hour))
-                let entitlement = min(maximumDailyEnergy, log1p(Double(observedTokens[currentDay, default: 0]) / record.reference) / log(2)) * calibration
+                // UTC days anchor the energy cap and the deduplication journal.
+                let entitlement = dailyEnergy(work: Double(observedTokens[currentDay, default: 0]))
                 let grant = max(0, entitlement - record.credited)
                 state.reserve = min(maximumReserve, state.reserve + grant)
                 record.credited += grant
                 ledger[currentDay] = record
-                state.reference = record.reference
+                todayEnergy = record.credited
+                state.reference = referenceDailyWork
             }
             let elapsedHours = next.timeIntervalSince(cursor) / hour
-            tick(state: &state, hours: elapsedHours, now: next, dataAvailable: dataAvailable)
+            tick(state: &state, hours: elapsedHours, now: next, dataAvailable: dataAvailable, todayEnergy: todayEnergy)
             cursor = next
         }
         state.days = ledger.values.filter { $0.day >= oldest }.sorted { $0.day < $1.day }
@@ -236,12 +228,16 @@ public enum PlantEngine {
         if dataAvailable { state.lastReliableObservation = now }
     }
 
+    /// Ages organs and lowers health after the first idle day. Without reliable data (missing or
+    /// unreadable logs) health is frozen: a reading problem is not a day without use.
     private static func age(state: inout PlantState, hours: Double, now: Date, dataAvailable: Bool) {
-        let dormantDays = max(0, now.timeIntervalSince(state.lastActivity ?? state.createdAt) / 86400 - 3)
         if dataAvailable {
-            let target = max(0.3, 1 - dormantDays * 0.025)
-            let alpha = 1 - exp(-hours / 72)
-            state.health += (target - state.health) * alpha
+            let lastUse = max(state.lastActivity ?? state.createdAt, state.createdAt)
+            let idleEnd = now.timeIntervalSince(lastUse) / hour
+            let idleHours = max(0, min(hours, idleEnd - 24)) // hours of this step beyond the first idle day
+            if idleHours > 0 {
+                state.health = max(minimumHealth, state.health - wiltPerIdleDay * idleHours / 24)
+            }
         }
         for i in state.organs.indices {
             state.organs[i].ageHours += hours
@@ -249,30 +245,39 @@ public enum PlantEngine {
         }
     }
 
-    private static func tick(state: inout PlantState, hours: Double, now: Date, dataAvailable: Bool) {
+    private static func tick(state: inout PlantState, hours: Double, now: Date, dataAvailable: Bool, todayEnergy: Double) {
         age(state: &state, hours: hours, now: now, dataAvailable: dataAvailable)
-        let spent = min(state.reserve, hours * 0.035)
+        // Recovery while in use (activity within the last day), faster on fuller days.
+        if dataAvailable, let activity = state.lastActivity, now.timeIntervalSince(activity) < 24 * hour {
+            let effort = min(1.4, max(0.35, todayEnergy + 0.3))
+            state.health = min(1, state.health + recoveryPerActiveDay * effort * hours / 24)
+            for i in state.organs.indices { state.organs[i].health = state.health }
+        }
+        // A wilted plant keeps its energy but cannot turn it into growth until it recovers.
+        let vigor = min(1, max(0, (state.health - 0.35) / 0.45))
+        // Once old enough to flower, part of the energy is saved for a bud instead of new leaves.
+        let saving = state.historicalMaturity >= flowerMaturity ? flowerCost : 0
+        // Energy only flows into organs that are still expanding (or opening buds); otherwise it
+        // stays banked for new leaves, branches and flowers, so even light use keeps adding leaves.
+        let expanding = state.organs.indices.filter { state.organs[$0].maturation < 1 && state.organs[$0].kind != .flower }
+        let opening = state.organs.contains { $0.kind == .flower && $0.maturation < 0.72 }
+        let spent = expanding.isEmpty && !opening ? 0 : min(max(0, state.reserve - saving), hours * 0.2 * vigor)
         state.reserve -= spent
         state.historicalMaturity += spent
-        // Recover gradually after recent activity. Never reset historical maturity.
-        if dataAvailable, let activity = state.lastActivity, now.timeIntervalSince(activity) < 72 * hour {
-            state.health = min(1, state.health + hours * 0.003)
-        }
-        let expanding = state.organs.indices.filter { state.organs[$0].maturation < 1 && state.organs[$0].kind != .flower }
         if spent > 0, !expanding.isEmpty {
             // Stagger allocation by age; the two initial leaves do not move in lockstep.
             for (offset, i) in expanding.enumerated() {
                 let priority = offset % 2 == Int(state.historicalMaturity * 10) % 2 ? 1.5 : 0.55
-                state.organs[i].maturation = min(1, state.organs[i].maturation + spent * state.organs[i].growthRate * priority / Double(max(1, expanding.count)) * 3)
+                state.organs[i].maturation = min(1, state.organs[i].maturation + spent * state.organs[i].growthRate * priority / Double(max(1, expanding.count)) * 1.2)
             }
         }
         for i in state.organs.indices {
             let organ = state.organs[i]
             if organ.kind == .flower {
-                // Each flower carries its own biological progress. A small reserve
-                // sustains opening after work; old flowers wilt even with no energy.
+                // Each flower carries its own biological progress. Opening needs energy and health;
+                // open flowers age and fall even without energy.
                 if organ.maturation < 0.72, spent > 0 {
-                    state.organs[i].maturation = min(0.72, organ.maturation + hours * organ.growthRate / 120 * min(1, spent / max(0.0001, hours * 0.02)))
+                    state.organs[i].maturation = min(0.72, organ.maturation + hours * organ.growthRate / 120 * min(1, spent / max(0.0001, hours * 0.05)))
                 } else if organ.maturation >= 0.72 {
                     state.organs[i].maturation = min(1, organ.maturation + hours / 240)
                 }
@@ -283,17 +288,20 @@ public enum PlantEngine {
             state.organs[i].size = 1 + (organ.maximumSize - 1) * smooth
         }
         retire(state: &state)
-        if now >= state.nextBranch, state.historicalMaturity >= 1.2, state.reserve >= 0.15 {
-            addBranch(state: &state, now: now)
-            state.nextBranch = now.addingTimeInterval((3 + state.random() * 2) * 86400)
+        // New organs cost energy and need a healthy plant.
+        // Leaves and branches never eat into the energy saved for the next bud.
+        guard state.health >= 0.6 else { return }
+        if now >= state.nextBranch, state.historicalMaturity >= 3, state.reserve - saving >= 0.8 {
+            addBranch(state: &state, now: now, cost: 0.8)
+            state.nextBranch = now.addingTimeInterval((2 + state.random() * 2) * 86400)
         }
-        if now >= state.nextBirth, state.reserve >= 0.06 {
-            addLeaf(state: &state, now: now)
-            state.nextBirth = now.addingTimeInterval((8 + state.random() * 14) * hour)
+        if now >= state.nextBirth, state.reserve - saving >= 0.35 {
+            addLeaf(state: &state, now: now, cost: 0.35)
+            state.nextBirth = now.addingTimeInterval((6 + state.random() * 8) * hour)
         }
-        if now >= state.nextFlower, state.historicalMaturity >= 3, state.reserve >= 0.25 {
-            addFlower(state: &state, now: now)
-            state.nextFlower = now.addingTimeInterval((3 + state.random() * 4) * 86400)
+        if now >= state.nextFlower, state.historicalMaturity >= flowerMaturity, state.health >= 0.75, state.reserve >= flowerCost {
+            addFlower(state: &state, now: now, cost: flowerCost)
+            state.nextFlower = now.addingTimeInterval((3 + state.random() * 3) * 86400)
         }
     }
 
@@ -309,7 +317,8 @@ public enum PlantEngine {
 
     private static func retire(state: inout PlantState) {
         let leaves = state.organs.filter { $0.kind == .leaf }.sorted { $0.bornAt < $1.bornAt }
-        let protected = Set(leaves.suffix(2).map(\.id))
+        // Old leaves fall only while the plant keeps a full crown; ageing alone never strips a plant bare.
+        let protected = Set(leaves.suffix(12).map(\.id))
         let oldCount = state.organs.count
         state.organs.removeAll {
             ($0.kind == .leaf && $0.ageHours > 24 * 35 && !protected.contains($0.id)) ||
@@ -324,7 +333,7 @@ public enum PlantEngine {
         return branches[min(branches.count - 1, Int(state.random() * Double(branches.count)))]
     }
 
-    private static func addBranch(state: inout PlantState, now: Date) {
+    private static func addBranch(state: inout PlantState, now: Date, cost: Double) {
         let segments = state.organs.filter { $0.kind == .stem || $0.kind == .branch }
         if segments.count >= maximumBranches {
             // Replace only an unused terminal branch, keeping the graph connected.
@@ -350,10 +359,11 @@ public enum PlantEngine {
         let organ = state.makeOrgan(kind: kind, parent: parent.id, date: now, x: point.x, y: point.y,
                                     endX: min(0.82, max(0.18, point.x + dx)), endY: max(0.16, point.y - dy), angle: 0)
         state.organs.append(organ)
-        state.reserve -= 0.15
+        state.reserve -= cost
+        state.historicalMaturity += cost
     }
 
-    private static func addLeaf(state: inout PlantState, now: Date) {
+    private static func addLeaf(state: inout PlantState, now: Date, cost: Double) {
         guard let parent = attachment(state: &state) else { return }
         let leaves = state.organs.filter { $0.kind == .leaf }
         if leaves.count >= maximumLeaves, let oldest = leaves.min(by: { $0.bornAt < $1.bornAt }) {
@@ -366,16 +376,18 @@ public enum PlantEngine {
         let angle = direction * (0.55 + state.random() * 0.45)
         let leaf = state.makeOrgan(kind: .leaf, parent: parent.id, date: now, x: point.0, y: point.1, endX: point.0, endY: point.1, angle: angle)
         state.organs.append(leaf)
-        state.reserve -= 0.06
+        state.reserve -= cost
+        state.historicalMaturity += cost
     }
 
-    private static func addFlower(state: inout PlantState, now: Date) {
+    private static func addFlower(state: inout PlantState, now: Date, cost: Double) {
         guard state.organs.filter({ $0.kind == .flower }).count < maximumFlowers,
               let parent = attachment(state: &state) else { return }
         let point = parent.endpoint
         let angle = state.random() * 0.3 - 0.15
         let flower = state.makeOrgan(kind: .flower, parent: parent.id, date: now, x: point.x, y: point.y, endX: point.x, endY: point.y, angle: angle)
         state.organs.append(flower)
-        state.reserve -= 0.25
+        state.reserve -= cost
+        state.historicalMaturity += cost
     }
 }

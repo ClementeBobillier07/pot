@@ -34,10 +34,10 @@ Original status: available implementation/QA handed off, native acceptance **blo
 | 2 Interactive Mac QA (hover, drag, click-through, focus, Spaces, displays, sleep, login items, VoiceOver) | **Owner** — follow docs/MAC_QA.md (no screen-control tool was available to the agent) |
 | 3a Plant illustration matching landing families | Implemented; offscreen render harness `Pot --render-plants DIR` |
 | 3b Onboarding corner choice (master doc §3/§10) | Implemented (onboarding + Settings) |
-| 3c Pause the garden (§9) | Implemented (engine, Settings, menu bar) with tests |
+| 3c Pause the garden (§9) | Removed by owner decision (25): a trip wilts the plant and it recovers |
 | 3d Periods today/7d/30d/all + coverage since/last read (§5, §10) | Implemented |
 | 3e Local export of daily totals and plant state (§12) | Implemented with privacy test |
-| 3f Menu bar: presentation + pause (§10) | Implemented |
+| 3f Menu bar: presentation (§10) | Implemented |
 | 3g Energy reference at median vs higher percentile; `codex-auto-review` price | Deferred to beta evidence (docs/BETA.md) |
 | 4 Beta kit | docs/BETA.md, issue template, `pot-dev reconcile` |
 | 5 CI | `.github/workflows/ci.yml` (Swift on macOS, landing on Linux); manual DMG workflow unchanged |

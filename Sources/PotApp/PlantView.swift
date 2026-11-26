@@ -115,7 +115,7 @@ struct PlantView: View {
         }
         .accessibilityElement(children: .ignore)
         .accessibilityLabel("\(plant.provider.displayName) plant")
-        .accessibilityValue(plant.health > 0.65 ? "Growing peacefully" : "Resting. Ready to recover when you return.")
+        .accessibilityValue(plant.health > 0.8 ? "Growing peacefully" : plant.health > 0.45 ? "A little thirsty" : "Wilted. A few days of work will bring it back.")
     }
     /// Activity dance, or a slow breeze unique to each plant (phase and tempo from its seed).
     private func sway(at t: Double) -> Double {
@@ -177,7 +177,7 @@ private struct PlantDrawing: View, Animatable {
             }
 
             // Stems and branches: gently arching strokes, like the landing's quadratic shoots.
-            let stemColor = palette.stem.mixed(PlantPalette.tired, (1 - health) * 0.5).color
+            let stemColor = palette.stem.mixed(PlantPalette.tired, (1 - health) * 0.7).color
             for organ in plant.organs where organ.kind == .stem || organ.kind == .branch {
                 let start = point(organ.x, organ.y)
                 let end = point(organ.endpoint.x, organ.endpoint.y)
@@ -216,7 +216,7 @@ private struct PlantDrawing: View, Animatable {
                 let end = point(organ.endpoint.x, organ.endpoint.y)
                 let heading = atan2(end.x - start.x, -(end.y - start.y))
                 let length = 8 + 9 * min(1, organ.maturation)
-                let tone = palette.leaves[(abs(organ.colorIndex) + 2) % palette.leaves.count].mixed(PlantPalette.tired, (1 - health) * 0.65)
+                let tone = palette.leaves[(abs(organ.colorIndex) + 2) % palette.leaves.count].mixed(PlantPalette.tired, (1 - health) * 0.9)
                 for spread in [-0.45, 0.4] {
                     var tip = layer
                     tip.translateBy(x: end.x, y: end.y)
@@ -232,7 +232,7 @@ private struct PlantDrawing: View, Animatable {
                 leafLayer.translateBy(x: anchor.x, y: anchor.y)
                 // Low health lowers turgor: leaves droop away from vertical.
                 let side: Double = organ.orientation >= 0 ? 1 : -1
-                leafLayer.rotate(by: .radians(organ.orientation + side * (1 - health) * 0.55))
+                leafLayer.rotate(by: .radians(organ.orientation + side * (1 - health) * 0.95))
                 let length = 9 + currentSize(organ) * 5.5
                 let variation = [1.0, 0.9, 1.1][abs(organ.shape) % 3]
                 func p(_ a: Double, _ c: Double) -> CGPoint { CGPoint(x: c * length * variation, y: -a * length) }
@@ -240,7 +240,7 @@ private struct PlantDrawing: View, Animatable {
                 let ageing = max(0, min(1, (days - 24) / 11)) * 0.45
                 let tone = palette.leaves[abs(organ.colorIndex) % palette.leaves.count]
                     .mixed(PlantPalette.autumn, ageing)
-                    .mixed(PlantPalette.tired, (1 - health) * 0.65)
+                    .mixed(PlantPalette.tired, (1 - health) * 0.9)
                 leafLayer.fill(leafPath(length: length, variation: variation), with: .color(tone.color))
                 if length > 26 {
                     // A faint midrib on grown leaves; invisible on seedlings.

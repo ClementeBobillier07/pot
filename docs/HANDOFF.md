@@ -55,13 +55,13 @@ Para reiniciar el estado de desarrollo: `rm -rf ~/Library/Application\ Support/P
 - **Precios:** catálogo con Opus, Sonnet y Haiku 5.5, incluidos los dos tramos de Haiku según el largo del prompt. `codex-auto-review` queda sin precio a propósito.
 - **Motor de la planta:**
   - La calibración sigue la mediana observada hasta tener 7 días activos.
-  - "Pausar el jardín": congela la planta y no acredita el uso registrado durante la pausa, aunque termine el mismo día.
+  - Motor de crecimiento 2: un mismo ritmo para todos (energía diaria = log2(1 + trabajo ÷ 10 M), máximo 3; el trabajo pondera lecturas de caché ×0,1 y salida ×5). Crecer cuesta energía y marchitarse es rápido: sin cambio el primer día sin uso, luego −0,18 por día, mínimo 0,15; se recupera en unos 3 días de uso. No hay pausa ni renombrar plantas. Detalle en `docs/ENGINE.md`.
   - Las ramas crecen equilibradas.
 - **App:**
   - Arranque AppKit puro (ya no aparece la ventana vacía "Pot Settings") y menú mínimo para los atajos.
   - La cuenta con sesión iniciada ya no crea una planta vacía.
   - La primera importación es rápida; los escaneos se agrupan y solo se reprograman si avanzan.
-  - Períodos Today / 7 days / 30 days / All, cobertura, exportación JSON sin identificadores, selector de esquina en el onboarding y en Ajustes, y submenú Presentation y Pausar en la barra.
+  - Períodos Today / 7 days / 30 days / All, cobertura, exportación JSON sin identificadores, selector de esquina en el onboarding y en Ajustes, y submenú Presentation en la barra.
   - Ilustración nativa con el estilo de la landing: Codex como eucalipto en maceta salvia y Claude con hojas finas en terracota; salud visible y siete etapas de flor.
 - **Kit:** `docs/BETA.md` con la plantilla de issue, `docs/RELEASE.md` y `docs/MAC_QA.md`.
 
@@ -80,12 +80,11 @@ Para reiniciar el estado de desarrollo: `rm -rf ~/Library/Application\ Support/P
    - Suspensión y reactivación.
    - Inicio de sesión desde `/Applications`.
    - VoiceOver y movimiento reducido.
-   - Pausa y reanudación, y la exportación.
+   - La exportación.
 
    Corrige lo que falle con pruebas y capturas solo de las ventanas de Pot (`screencapture -l <windowID>`).
 2. **Ajustes de producto con evidencia de la beta** (`docs/BETA.md`):
-   - Hoy la energía llega al máximo con un día "normal" (la mediana); evaluar un percentil más alto.
-   - La primera flor aparece en ~7–10 días; el documento sugiere "semanas".
+   - Ajustar el día de referencia (10 M unidades de trabajo) y la velocidad de marchitamiento con el uso real de la beta.
    - Precio de `codex-auto-review`.
    - Hay mucho espacio vacío sobre las plantas pequeñas en la ventana principal.
    - Si conviene un selector de esquina más visual.

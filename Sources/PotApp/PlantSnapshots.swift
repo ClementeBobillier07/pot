@@ -7,41 +7,45 @@ import PotCore
 /// (fixed seed, simulated steady usage) and exits. It creates no windows or status item and
 /// never reads logs, UserDefaults or Pot's Application Support data.
 enum PlantSnapshots {
-    private struct Sample { let name: String; let plant: PlantState }
+    private struct Sample { let name: String; var caption = ""; let plant: PlantState }
 
     @MainActor
     static func renderAndExit(to directory: String) -> Never {
         let output = URL(fileURLWithPath: directory, isDirectory: true)
         do {
             try FileManager.default.createDirectory(at: output, withIntermediateDirectories: true)
-            var samples: [Sample] = []
-            for provider in Provider.allCases {
-                samples += growth(provider: provider)
-            }
-            for sample in samples {
+            // Rows: usage rhythms on weekdays (weekends off) and one plant left idle after a month.
+            let rows: [(title: String, samples: [Sample])] = [
+                ("Light · 1.5 M work/day", growth(work: 1_500_000, provider: .codex)),
+                ("Typical · 10 M work/day", growth(work: 10_000_000, provider: .claude)),
+                ("Heavy · 40 M work/day", growth(work: 40_000_000, provider: .claude)),
+                ("Idle after 30 typical days", wilting()),
+            ]
+            for row in rows { for sample in row.samples {
                 try write(PlantView(plant: sample.plant).frame(width: 290, height: 300), name: "synthetic-\(sample.name).png", in: output)
-            }
-            // Floating-panel size (180 pt wide), on light and dark desktops.
-            if let mature = samples.first(where: { $0.name == "claude-day120" }) {
+            } }
+            if let mature = rows[2].samples.last {
                 for (scheme, background) in [("light", Color(white: 0.93)), ("dark", Color(white: 0.12))] {
                     try write(PlantView(plant: mature.plant).frame(width: 180, height: 225).padding(16).background(background),
                               name: "synthetic-floating-\(scheme).png", in: output)
                 }
             }
-            // One contact sheet for quick review.
-            let sheet = VStack(alignment: .leading, spacing: 8) {
-                Text("SYNTHETIC PLANTS · simulated usage, not real data").font(.system(size: 13, weight: .semibold))
-                ForEach(Provider.allCases, id: \.rawValue) { provider in
-                    HStack(spacing: 4) {
-                        ForEach(samples.filter { $0.plant.provider == provider }, id: \.name) { sample in
-                            VStack(spacing: 2) {
-                                PlantView(plant: sample.plant).frame(width: 190, height: 220)
-                                Text(sample.name).font(.system(size: 10)).foregroundStyle(.secondary)
+            let sheet = VStack(alignment: .leading, spacing: 10) {
+                Text("SYNTHETIC PLANTS · simulated usage, not real data · engine \(PlantEngine.version)").font(.system(size: 13, weight: .semibold))
+                ForEach(rows, id: \.title) { row in
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(row.title).font(.system(size: 12, weight: .medium))
+                        HStack(spacing: 4) {
+                            ForEach(row.samples, id: \.name) { sample in
+                                VStack(spacing: 1) {
+                                    PlantView(plant: sample.plant).frame(width: 170, height: 196)
+                                    Text(sample.caption).font(.system(size: 10)).foregroundStyle(.secondary)
+                                }
                             }
                         }
                     }
                 }
-            }.padding(12).background(Color(white: 0.93))
+            }.padding(14).background(Color(white: 0.93))
             try write(sheet, name: "synthetic-contact-sheet.png", in: output)
             print("Wrote synthetic plant renders to \(output.path)")
             exit(0)
@@ -51,31 +55,38 @@ enum PlantSnapshots {
         }
     }
 
-    /// Weekday usage at a steady personal rhythm; weekends rest. Ages in days.
-    private static func growth(provider: Provider) -> [Sample] {
-        let start = Date(timeIntervalSince1970: 1_767_225_600) // 2026-01-01 UTC, fixed
+    private static let start = Date(timeIntervalSince1970: 1_767_225_600) // 2026-01-01 UTC (Thursday), fixed
+    private static func usage(_ provider: Provider, day: Int, work: Int64) -> UsageEvent {
+        UsageEvent(id: "SYNTHETIC-\(provider.rawValue)-\(work)-\(day)", provider: provider,
+                   timestamp: start.addingTimeInterval(Double(day) * 86400 + 10 * 3600), model: "SYNTHETIC", input: work, output: 0)
+    }
+    private static func isWeekday(_ day: Int) -> Bool { ![2, 3].contains(day % 7) } // day 0 is a Thursday
+
+    /// Same seed, different rhythm; snapshots at midday so weekend dips show honestly.
+    private static func growth(work: Int64, provider: Provider) -> [Sample] {
         var plant = PlantState(seed: 20_261_125, provider: provider, createdAt: start)
-        var events: [UsageEvent] = []
-        var samples = [Sample(name: "\(provider.rawValue)-day0", plant: plant)]
-        let checkpoints = [3, 14, 45, 120, 365]
-        for day in 0..<365 {
-            if day % 7 < 5 {
-                let tokens: Int64 = Int64(2_000_000 + (day % 5) * 400_000)
-                events.append(UsageEvent(id: "SYNTHETIC-\(provider.rawValue)-\(day)", provider: provider,
-                                         timestamp: start.addingTimeInterval(Double(day) * 86400 + 10 * 3600),
-                                         model: "SYNTHETIC", input: tokens / 10, output: tokens / 50, cacheRead: tokens - tokens / 10 - tokens / 50))
-            }
-            PlantEngine.advance(state: &plant, events: events, now: start.addingTimeInterval(Double(day + 1) * 86400))
-            if checkpoints.contains(day + 1) {
-                samples.append(Sample(name: "\(provider.rawValue)-day\(day + 1)", plant: plant))
-                if day + 1 == 45 {
-                    // Same plant after a month without activity: tired, never dead.
-                    var resting = plant
-                    PlantEngine.advance(state: &resting, events: events, now: start.addingTimeInterval(Double(day + 31) * 86400))
-                    samples.append(Sample(name: "\(provider.rawValue)-rest30", plant: resting))
-                }
-            }
+        let events = (0..<90).filter(isWeekday).map { usage(provider, day: $0, work: work) }
+        var samples: [Sample] = []
+        for day in [3, 7, 14, 30, 60, 90] {
+            PlantEngine.advance(state: &plant, events: events, now: start.addingTimeInterval(Double(day) * 86400 + 12 * 3600))
+            samples.append(Sample(name: "w\(work / 1_000_000)M-day\(day)", caption: "day \(day)", plant: plant))
         }
+        return samples
+    }
+
+    /// A month of typical use every day, then no use at all, then three typical days back.
+    private static func wilting() -> [Sample] {
+        var plant = PlantState(seed: 7_777, provider: .codex, createdAt: start)
+        var events = (0..<30).map { usage(.codex, day: $0, work: 10_000_000) }
+        let lastUse = start.addingTimeInterval(29 * 86400 + 10 * 3600)
+        var samples: [Sample] = []
+        for idle in [0, 1, 2, 3, 4, 7] {
+            PlantEngine.advance(state: &plant, events: events, now: lastUse.addingTimeInterval(Double(idle) * 86400 + 3600))
+            samples.append(Sample(name: "idle\(idle)", caption: idle == 0 ? "in use" : "\(idle) day\(idle == 1 ? "" : "s") idle · health \(String(format: "%.2f", plant.health))", plant: plant))
+        }
+        events += (37..<40).map { usage(.codex, day: $0, work: 10_000_000) }
+        PlantEngine.advance(state: &plant, events: events, now: start.addingTimeInterval(40 * 86400 + 3600))
+        samples.append(Sample(name: "back3", caption: "3 days back · health \(String(format: "%.2f", plant.health))", plant: plant))
         return samples
     }
 

@@ -17,7 +17,6 @@ struct AccountSnapshot {
     var historyStart: Date?
     var recordCount = 0
     var lastRead = Date()
-    var paused = false
 }
 
 /// Confined to AppModel's serial ingestion queue; never touched concurrently.
@@ -36,7 +35,7 @@ private final class GardenWorker: @unchecked Sendable {
         return value
     }
 
-    func scan(roots: [Provider: [URL]], detections: [AgentDetection], paused: Bool, now: Date) throws -> [AccountSnapshot] {
+    func scan(roots: [Provider: [URL]], detections: [AgentDetection], now: Date) throws -> [AccountSnapshot] {
         let db = try database()
         pendingImport = false
         let catalog = try PriceCatalog.bundled()
@@ -77,14 +76,17 @@ private final class GardenWorker: @unchecked Sendable {
             let plant: PlantState
             if let data = try db.plantData(profileID: profile.id) {
                 // A decoding failure must surface; replacing it would silently reset a garden.
-                plant = try JSONDecoder().decode(PlantState.self, from: data)
+                let stored = try JSONDecoder().decode(PlantState.self, from: data)
+                // A plant from an older growth engine is re-grown from its birth with the current
+                // rules, keeping its seed (look) and birth date. Only the young beta plants are affected.
+                plant = stored.engineVersion < PlantEngine.version
+                    ? PlantState(seed: stored.seed, provider: stored.provider, createdAt: stored.createdAt)
+                    : stored
             } else {
                 plant = PlantState(seed: UInt64.random(in: 1...UInt64.max), provider: profile.provider, createdAt: profile.createdAt)
             }
             var updated = plant
-            if !paused { PlantEngine.setPaused(false, state: &updated, now: now) }
             PlantEngine.advance(state: &updated, events: events, now: now, dataAvailable: availability[profile.provider] ?? false)
-            if paused { PlantEngine.setPaused(true, state: &updated, now: now) }
             try db.savePlantData(profileID: profile.id, data: JSONEncoder().encode(updated))
             let range = try db.coverage(profileID: profile.id)
             var periods: [UsagePeriod: PeriodSummary] = [:]
@@ -103,7 +105,7 @@ private final class GardenWorker: @unchecked Sendable {
                 days: UsageStatistics.lastSevenDays(events: events, now: now, timeZone: .current, catalog: catalog),
                 lastActivity: events.filter { $0.timestamp <= now }.map(\.timestamp).max(),
                 coverage: coverage[profile.provider] ?? "No source available · health protected", priceReference: catalog.verifiedAt,
-                periods: periods, historyStart: range.first, recordCount: range.count, lastRead: now, paused: paused)
+                periods: periods, historyStart: range.first, recordCount: range.count, lastRead: now)
         }
         // Stable garden order: provider, then plants with account evidence, then alias.
         .sorted { a, b in
@@ -154,10 +156,6 @@ final class AppModel: ObservableObject {
     }
     @Published var appearance = UserDefaults.standard.string(forKey: "appearance") ?? "system" {
         didSet { UserDefaults.standard.set(appearance, forKey: "appearance"); applyAppearance() }
-    }
-    /// "Pause the garden" (vacation): freezes growth and deterioration for every plant.
-    @Published var gardenPaused = UserDefaults.standard.bool(forKey: "gardenPaused") {
-        didSet { UserDefaults.standard.set(gardenPaused, forKey: "gardenPaused"); scan() }
     }
     @Published var corner = FloatingCorner(rawValue: UserDefaults.standard.string(forKey: "floatingCorner") ?? "") ?? .bottomRight {
         didSet {
@@ -276,9 +274,8 @@ final class AppModel: ObservableObject {
         let sources = roots.filter { enabledProviders.contains($0.key) }
         let agents = detections.filter { enabledProviders.contains($0.provider) }
         let worker = worker
-        let paused = gardenPaused
         queue.async { [weak self] in
-            let result = Result { try worker.scan(roots: sources, detections: agents, paused: paused, now: Date()) }
+            let result = Result { try worker.scan(roots: sources, detections: agents, now: Date()) }
             let moreHistory = worker.pendingImport
             DispatchQueue.main.async {
                 guard let self else { return }
@@ -314,17 +311,6 @@ final class AppModel: ObservableObject {
         let current = snapshots.firstIndex { $0.profile.id == selectedID } ?? 0
         selectedID = snapshots[(current + direction + snapshots.count) % snapshots.count].profile.id
     }
-    func rename(_ alias: String) {
-        guard var profile = selected?.profile, !alias.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
-        profile.alias = String(alias.prefix(80))
-        let savedProfile = profile
-        let worker = worker
-        queue.async { [weak self] in
-            do { try worker.database().saveProfile(savedProfile) }
-            catch { DispatchQueue.main.async { self?.message = "The alias could not be saved." } }
-            DispatchQueue.main.async { self?.scan() }
-        }
-    }
     func toggleFloating() {
         if floatingManuallyHidden || !floatingVisible {
             if mode == .menuBarOnly { mode = .alwaysWithMe }
@@ -359,7 +345,7 @@ final class AppModel: ObservableObject {
                 self.snapshots = []; self.detections = []; self.roots = [:]; self.selectedID = ""
                 self.onboarded = false; self.onboardingStep = 0; self.showSettings = false
                 self.pendingScan = false; self.enabledProviders = Set(Provider.allCases)
-                self.mode = .whileIWork; self.plantSize = 180; self.idleDelay = 180; self.appearance = "system"; self.gardenPaused = false; self.corner = .bottomRight
+                self.mode = .whileIWork; self.plantSize = 180; self.idleDelay = 180; self.appearance = "system"; self.corner = .bottomRight
                 self.policy.show(); self.updateFloating()
             }
         }

@@ -106,10 +106,6 @@ struct MainView: View {
                     .id(account.profile.id)
                     .transition(reduceMotion ? .identity : .opacity.combined(with: .scale(scale: 0.96, anchor: .bottom)))
                     .padding(.top, -6).padding(.bottom, 4)
-                if account.paused {
-                    Label("Garden paused · growth and wilting are on hold", systemImage: "pause.circle")
-                        .font(.caption).foregroundStyle(.secondary).padding(.bottom, 4)
-                }
                 Picker("Period", selection: $period) {
                     ForEach(UsagePeriod.allCases) { Text($0.title).tag($0) }
                 }.pickerStyle(.segmented).labelsHidden().frame(width: 290).padding(.bottom, 6)
@@ -290,7 +286,6 @@ private struct OnboardingView: View {
 private struct SettingsView: View {
     @ObservedObject var model: AppModel
     @State private var confirmErase = false
-    @State private var alias = ""
     var body: some View {
         Form {
             Section("Connected agents") {
@@ -306,17 +301,6 @@ private struct SettingsView: View {
                 }
                 Button("Refresh") { model.refreshDetection() }.disabled(model.busy)
                 Text("Accounts come from each agent’s own status command. Pot never reads credentials or signs in for you. This is who is signed in now; past activity is only linked to an account when the logs say so.")
-                    .font(.caption).foregroundStyle(.secondary)
-            }
-            if model.selected != nil {
-                Section("This plant") {
-                    TextField("Name", text: $alias).onSubmit { model.rename(alias) }
-                    Button("Save name") { model.rename(alias) }
-                }
-            }
-            Section("Garden") {
-                Toggle("Pause the garden", isOn: $model.gardenPaused)
-                Text("For holidays and breaks. Growth and wilting stop until you resume; statistics keep counting.")
                     .font(.caption).foregroundStyle(.secondary)
             }
             Section("At home on your Mac") {
@@ -349,7 +333,6 @@ private struct SettingsView: View {
                 Button("Quit Pot") { NSApp.terminate(nil) }
             }
         }.formStyle(.grouped)
-        .task(id: model.selected?.profile.id) { alias = model.selected?.profile.alias ?? "" }
         .confirmationDialog("Delete your local garden?", isPresented: $confirmErase, titleVisibility: .visible) {
             Button("Delete all Pot data", role: .destructive) { model.eraseData() }
             Button("Cancel", role: .cancel) {}
