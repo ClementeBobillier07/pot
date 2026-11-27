@@ -72,4 +72,4 @@ The Linux `Pot` executable is a platform guard and must never be distributed as 
 
 ## Before publishing
 
-Run the full [Mac QA checklist](docs/MAC_QA.md), reconcile actual Codex/Claude usage locally, measure idle resource usage, verify installation on a clean Mac, then sign/notarize with the owner's Apple Developer credentials. Request explicit authorization before publishing the release, deploying the landing or enabling analytics. Source licensing remains the owner's decision; see [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
+Run the full [Mac QA checklist](docs/MAC_QA.md), reconcile actual Codex/Claude usage locally, measure idle resource usage, verify installation on a clean Mac, then sign/notarize with the owner's Apple Developer credentials. Request explicit authorization before publishing the release, deploying the landing or enabling analytics. Pot's source is released under the [MIT License](LICENSE); third-party components keep their own licenses, listed in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).

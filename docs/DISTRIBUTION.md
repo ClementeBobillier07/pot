@@ -76,7 +76,7 @@ Do not modify any signed bundle after signing or any installer after checksummin
 ## Before a public GitHub Release
 
 1. Close every native QA item in `docs/MAC_QA.md` and record the macOS/Xcode/client versions and hardware.
-2. Decide the source license, bundle ID, app ownership details and public compatibility claims.
+2. Confirm the source license (MIT since decision 30), bundle ID, app ownership details and public compatibility claims.
 3. Build from a reviewed commit/tag. Keep signing credentials outside source control. Sign, notarize, staple and validate the final installer.
 4. Install from an actual downloaded quarantined DMG on a clean Mac. Test with networking unavailable as well as available. Verify that upgrading preserves the database and plants.
 5. Record artifact names, architecture, minimum macOS, checksums and release notes. Upload/publish only after explicit authorization.

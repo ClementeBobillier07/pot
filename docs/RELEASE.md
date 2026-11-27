@@ -5,7 +5,7 @@ Nothing here runs automatically. Each step that contacts Apple or GitHub is an e
 ## 0. Decisions to close first (owner)
 
 - [x] Bundle ID `com.agentpots.pot`; landing domain agentpots.com (owner to purchase).
-- [ ] D06 license for the source (today "owner-reserved"; notices already list zstd BSD, SQLite PD).
+- [x] D06 source license: MIT (`LICENSE`, decision 30); notices list zstd BSD and SQLite public domain.
 - [ ] D05 minimum macOS (code targets macOS 14) and Intel support (universal builds; needs a run on an Intel Mac).
 
 ## Status (2026-11-26)
@@ -13,8 +13,8 @@ Nothing here runs automatically. Each step that contacts Apple or GitHub is an e
 - [x] Developer ID Application certificate (team X7NK42H74M) in the owner's login keychain.
 - [x] Notary profile `pot-notary` (App Store Connect API key; the .p8 stays in `~/.pot-signing`, never in the repo).
 - [x] v0.1.0 universal DMG built, signed, notarized, stapled and verified (see BASELINE.md).
-- [ ] Owner authorization to tag `v0.1.0` and publish the GitHub Release.
-- [ ] Domain agentpots.com purchased and connected; landing deployed.
+- [x] Owner authorized; `v0.1.0` tagged and the GitHub Release published with the DMG and its `.sha256`.
+- [x] agentpots.com (GoDaddy DNS → Vercel Hobby) serves the landing over HTTPS; www redirects 308 to the apex.
 
 ## 1. Apple credentials (once, owner)
 
