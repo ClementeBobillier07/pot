@@ -30,7 +30,7 @@ scripts/build-macos.sh --arch universal --dmg
 cd landing && npm ci && npm test && npm run typecheck && npm run build
 ```
 
-Para reiniciar el estado de desarrollo: `rm -rf ~/Library/Application\ Support/Pot && defaults delete Pot`. El `.app` usa el dominio `com.pot.mac`.
+Para reiniciar el estado de desarrollo: `rm -rf ~/Library/Application\ Support/Pot && defaults delete Pot`. El `.app` usa el dominio `com.agentpots.pot`.
 
 ## Lo que ya está verificado en un Mac real (macOS 27.0.1, Apple Silicon, Swift 6.4.2)
 
@@ -95,7 +95,7 @@ Para reiniciar el estado de desarrollo: `rm -rf ~/Library/Application\ Support/P
    - Hay mucho espacio vacío sobre las plantas pequeñas en la ventana principal.
    - Si conviene un selector de esquina más visual.
 3. **Beta con 5–10 personas:** días 1 y 7, más `pot-dev reconcile` para validar otras versiones de Codex y Claude Code.
-4. **Decisiones del dueño:** licencia del código, dominio, bundle ID definitivo (hoy `com.pot.mac`), macOS mínimo y soporte Intel (el build universal existe, pero nunca se ejecutó en un Mac Intel).
+4. **Decisiones del dueño:** licencia del código, dominio, bundle ID definitivo (hoy `com.agentpots.pot`), macOS mínimo y soporte Intel (el build universal existe, pero nunca se ejecutó en un Mac Intel).
 5. **Lanzamiento** (`docs/RELEASE.md`, cada paso con autorización explícita):
    - Apple Developer Program, certificado Developer ID y perfil de `notarytool`.
    - Build firmado y notarizado.

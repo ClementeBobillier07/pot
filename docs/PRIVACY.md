@@ -8,7 +8,7 @@ Pot never directly opens auth.json, Keychain credentials, API keys, cookies or a
 
 The database lives at `~/Library/Application Support/Pot/garden.sqlite` with local-only SQLite WAL/SHM siblings. The containing directory is private to the macOS account (0700) and the database is 0600. SQLite is not encrypted by this app. macOS account isolation and FileVault, when enabled by the owner, are independent protections.
 
-Preferences live in the app's UserDefaults domain `com.pot.mac`. The user can explicitly delete Pot data and plants, with confirmation; agent files are never deleted or modified. Reimporting available external logs can rebuild statistics but creates a new small garden. Data already deleted by the agent cannot be reconstructed by Pot.
+Preferences live in the app's UserDefaults domain `com.agentpots.pot`. The user can explicitly delete Pot data and plants, with confirmation; agent files are never deleted or modified. Reimporting available external logs can rebuild statistics but creates a new small garden. Data already deleted by the agent cannot be reconstructed by Pot.
 
 Local usage and dedup keys are retained; no automatic retention cleanup is implemented that could permit old events to be credited again. Statistics/biology query only a bounded recent window. The compressed archive format is not supported yet and reports partial coverage.
 

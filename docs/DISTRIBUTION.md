@@ -7,7 +7,7 @@ Verified on macOS 27.0.1 / Apple Silicon (2026-11-25): `scripts/build-macos.sh -
 - macOS 14 or later and Xcode 16 or later (Swift 6 toolchain), with the command-line tools selected and the Xcode license accepted.
 - A checkout of this repository. The app uses system SQLite and Apple frameworks; end users need no package manager or extra runtime.
 - For production distribution only: Apple Developer Program membership, an installed **Developer ID Application** signing identity with its private key in the developer's Keychain, and a `notarytool` Keychain credential profile. Never commit certificates, passwords, API keys or Keychain exports.
-- Choose a permanent reverse-DNS bundle ID before the first public release. `com.pot.mac` is a development default, not a claim of domain or trademark ownership.
+- Bundle ID: `com.agentpots.pot` (owner domain agentpots.com), fixed from the first public release. Not a claim of domain or trademark ownership.
 
 ## Build a local application
 

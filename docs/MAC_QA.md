@@ -13,7 +13,7 @@ Verified with real (HID-level) synthetic input on macOS 27.0.1, 2026-11-26: hove
 
 Status (2026-11-25): build, tests, launch, real-data import/reconciliation, transparent floating panel rendering, universal local DMG, and idle footprint verified on macOS 27.0.1 / Apple Silicon (see BASELINE.md). **Interactive items below remain pending** (hover, drag, click-through, focus, Spaces, displays, sleep, login items, VoiceOver). Do not mark an item passed solely because Swift core tests succeed.
 
-Quick start for a QA run: `swift run Pot` (development, defaults domain `Pot`) or install `artifacts/Pot-*-local.app` into /Applications (defaults domain `com.pot.mac`). `swift run Pot --show-window` opens the garden window directly. Reset with Settings → Delete local data, or `rm -rf ~/Library/Application\ Support/Pot && defaults delete Pot`.
+Quick start for a QA run: `swift run Pot` (development, defaults domain `Pot`) or install `artifacts/Pot-*-local.app` into /Applications (defaults domain `com.agentpots.pot`). `swift run Pot --show-window` opens the garden window directly. Reset with Settings → Delete local data, or `rm -rf ~/Library/Application\ Support/Pot && defaults delete Pot`.
 
 For each run record hardware, CPU architecture, macOS version, Xcode/Swift version, Pot commit, Codex/Claude versions and whether an installed `.app` or `swift run` was used. Do not include personal log contents, email addresses or secrets in the report.
 

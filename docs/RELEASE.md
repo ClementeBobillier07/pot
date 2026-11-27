@@ -4,9 +4,17 @@ Nothing here runs automatically. Each step that contacts Apple or GitHub is an e
 
 ## 0. Decisions to close first (owner)
 
-- [ ] D06 brand/domain: final bundle ID (today `com.pot.mac`, a development default) and landing domain.
+- [x] Bundle ID `com.agentpots.pot`; landing domain agentpots.com (owner to purchase).
 - [ ] D06 license for the source (today "owner-reserved"; notices already list zstd BSD, SQLite PD).
 - [ ] D05 minimum macOS (code targets macOS 14) and Intel support (universal builds; needs a run on an Intel Mac).
+
+## Status (2026-11-26)
+
+- [x] Developer ID Application certificate (team X7NK42H74M) in the owner's login keychain.
+- [x] Notary profile `pot-notary` (App Store Connect API key; the .p8 stays in `~/.pot-signing`, never in the repo).
+- [x] v0.1.0 universal DMG built, signed, notarized, stapled and verified (see BASELINE.md).
+- [ ] Owner authorization to tag `v0.1.0` and publish the GitHub Release.
+- [ ] Domain agentpots.com purchased and connected; landing deployed.
 
 ## 1. Apple credentials (once, owner)
 

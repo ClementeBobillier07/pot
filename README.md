@@ -44,7 +44,7 @@ Then visit the URL printed by Next. Production checks are `npm test`, `npm run t
 - `PotDev`: independent synthetic simulations/benchmark executable; not bundled in the app and does not open the production database.
 - `landing`: Next.js/TypeScript site, original SVG illustrations and server-only cached public GitHub Releases counter; no analytics enabled.
 
-Native code depends only on system Apple frameworks, Foundation and SQLite. Sources are not modified, credentials are not read directly, and transcripts/code are not retained. Data lives in `~/Library/Application Support/Pot/` and the `com.pot.mac` preferences domain. See [privacy](docs/PRIVACY.md).
+Native code depends only on system Apple frameworks, Foundation and SQLite. Sources are not modified, credentials are not read directly, and transcripts/code are not retained. Data lives in `~/Library/Application Support/Pot/` and the `com.agentpots.pot` preferences domain. See [privacy](docs/PRIVACY.md).
 
 ## Development tools
 
