@@ -42,7 +42,7 @@ Then visit the URL printed by Next. Production checks are `npm test`, `npm run t
 - `PotCore`: Codex/Claude format adapters, bounded incremental ingestion, transactional SQLite, safe account attribution, seven calendar days, versioned exact-model Decimal reference prices and deterministic procedural organs.
 - `PotApp`: SwiftUI/Charts main view and onboarding; AppKit status item, nonactivating transparent NSPanel, click/drag/hit testing; FSEvents plus a 60-second incremental fallback; ServiceManagement login item; local UserDefaults.
 - `PotDev`: independent synthetic simulations/benchmark executable; not bundled in the app and does not open the production database.
-- `landing`: Next.js/TypeScript site, original SVG illustrations and server-only cached public GitHub Releases counter; no analytics enabled.
+- `landing`: Next.js/TypeScript site, original SVG illustrations and server-only cached public GitHub Releases counter and cookieless Vercel Web Analytics (decision 32).
 
 Native code depends only on system Apple frameworks, Foundation and SQLite. Sources are not modified, credentials are not read directly, and transcripts/code are not retained. Data lives in `~/Library/Application Support/Pot/` and the `com.agentpots.pot` preferences domain. See [privacy](docs/PRIVACY.md).
 

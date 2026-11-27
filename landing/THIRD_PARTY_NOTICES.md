@@ -71,6 +71,7 @@ Dependencies are pinned in `package-lock.json`. This inventory includes optional
 | @types/node | 24.10.1 | MIT |
 | @types/react | 19.2.7 | MIT |
 | @types/react-dom | 19.2.3 | MIT |
+| @vercel/analytics | 2.0.1 | MIT |
 | baseline-browser-mapping | 2.11.39 | Apache-2.0 |
 | caniuse-lite | 1.0.30001828 | CC-BY-4.0 |
 | client-only | 0.0.1 | MIT |

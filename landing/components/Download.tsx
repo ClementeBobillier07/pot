@@ -6,7 +6,7 @@ import { treeProgress } from '@/lib/trees';
 // The hero and closing CTA share one public metadata request in this browser.
 // No personal state is stored, and this is called only from client effects.
 let publicDownloads: Promise<DownloadSnapshot | null> | undefined;
-function loadPublicDownloads() {
+export function loadPublicDownloads() {
   publicDownloads ??= fetch('/api/releases', { signal: AbortSignal.timeout(15_000) })
     .then(response => response.ok ? response.json() : null)
     .then(data => data?.snapshot ?? null)
@@ -23,7 +23,7 @@ export default function Download({ compact = false }: { compact?: boolean }) {
     return () => { mounted = false; };
   }, []);
   return <div className={`download ${compact ? 'download-compact' : ''}`}>
-    <a className="button" href={snapshot ? snapshot.downloadURL : '#download'}><Apple />Download for macOS</a>
+    <a className="button" href={snapshot ? '/download' : '#download'}><Apple />Download for macOS</a>
     <DownloadCounter snapshot={snapshot} loaded={loaded} />
     {!compact && <p className="download-note">Free. Local. A little more alive. <span className="availability">For macOS 14 or later.</span></p>}
   </div>;
