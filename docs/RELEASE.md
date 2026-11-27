@@ -16,6 +16,7 @@ Nothing here runs automatically. Each step that contacts Apple or GitHub is an e
 - [x] Owner authorized; `v0.1.0` tagged and the GitHub Release published with the DMG and its `.sha256`.
 - [x] agentpots.com (GoDaddy DNS → Vercel Hobby) serves the landing over HTTPS; www redirects 308 to the apex.
 - [x] 2026-11-27: v0.1.1 (build 2) published with Sparkle; `agentpots.com/appcast.xml` offers it. Sparkle key backed up by the owner outside the repo.
+- [x] 2026-11-27: v0.1.2 (build 3) published; the appcast offers it to every 0.1.1 install.
 
 ## 1. Apple credentials (once, owner)
 

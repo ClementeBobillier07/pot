@@ -5,20 +5,20 @@
     <link>https://agentpots.com/appcast.xml</link>
     <language>en</language>
     <item>
-      <title>Pot 0.1.1</title>
-      <pubDate>Fri, 27 Nov 2026 18:07:07 +0000</pubDate>
-      <sparkle:version>2</sparkle:version>
-      <sparkle:shortVersionString>0.1.1</sparkle:shortVersionString>
+      <title>Pot 0.1.2</title>
+      <pubDate>Fri, 27 Nov 2026 23:56:13 +0000</pubDate>
+      <sparkle:version>3</sparkle:version>
+      <sparkle:shortVersionString>0.1.2</sparkle:shortVersionString>
       <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
       <description><![CDATA[
-<h2>Pot now updates itself</h2>
+<h2>The headline follows your unit</h2>
 <ul>
-  <li>New versions install automatically: Pot checks once a day and installs when its window is closed.</li>
-  <li>Prefer to choose? Settings → Updates → turn off <em>Update Pot automatically</em> and use <em>Check for updates…</em>.</li>
-  <li>Updates are verified with Pot's own signature. The check sends only the version number.</li>
+  <li>The Tokens / USD toggle now switches the big number too, not just the chart.</li>
+  <li>In USD you see the estimated value, with the token count underneath.</li>
+  <li>Pot remembers which unit you picked.</li>
 </ul>
       ]]></description>
-      <enclosure url="https://github.com/ClementeBobillier07/pot/releases/download/v0.1.1/Pot-0.1.1-macOS-universal.dmg" type="application/octet-stream" sparkle:edSignature="81DvsP8m3xQek+AQgKu9Szpi/dm5DTzQV0A/Tn73WBlzl2nbX+a8lQJ2+FQ+K9JDGTKuOh0Hx4bogcinfohVCw==" length="2875712" />
+      <enclosure url="https://github.com/ClementeBobillier07/pot/releases/download/v0.1.2/Pot-0.1.2-macOS-universal.dmg" type="application/octet-stream" sparkle:edSignature="ciyCOd7iCLig6cpiPJWq2+PNWokKfhGPIDrwzeKIDmiNo0i6uY/QRRN5OoY+jQ+Sg1wYqq4eleagvIEKpYWIAQ==" length="2887140" />
     </item>
   </channel>
 </rss>
