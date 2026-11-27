@@ -30,7 +30,7 @@ The counter appears only when at least one eligible installer exists. A real zer
 
 Vercel Web Analytics is enabled with the owner's authorization (decision 32): `@vercel/analytics` in `app/layout.tsx`, served from the site's own `/_vercel/insights` path. It sets no cookies and reports aggregated page views, referrers, countries, browsers, operating systems and device types; Vercel filters bots. Every download button goes to `/download`, which records the visit and then starts the GitHub Releases download in the browser, so visits to `/download` measure download intent, and crawlers or link previews no longer fetch the DMG. Read the numbers in the Vercel dashboard → agentpots → Analytics. No third-party fonts, images, user database or authentication service is configured; any other external service still requires the owner's authorization and a reviewed privacy policy.
 
-Ready for ordinary Vercel Next.js hosting by selecting `landing` as the project root. **No project, public site, deployment, or scheduled job was created.** Robots indexing is disabled for the development build and should only be enabled after public release approval.
+Hosted on Vercel (project `agentpots`, root directory `landing`, Hobby plan); every merge to `main` deploys https://agentpots.com. Search indexing is on (decision 33): `app/robots.ts` allows the site except `/api/` and `/download`, `app/sitemap.ts` lists the home page, the canonical URL is https://agentpots.com, and `app/opengraph-image.png` / `twitter-image.png` (1200×630, composed from the site's own plant renders) illustrate shared links. `/download` also carries `noindex`.
 
 ## Verification on 2026-11-25
 

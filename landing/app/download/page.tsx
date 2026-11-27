@@ -4,6 +4,9 @@ import StartDownload from '@/components/StartDownload';
 export const metadata: Metadata = {
   title: 'Downloading Pot',
   description: 'Your download of Pot for macOS is starting.',
+  // A transit page: keep it out of search results and point engines at the home page.
+  robots: { index: false, follow: true },
+  alternates: { canonical: '/' },
 };
 
 /** Every "Download for macOS" button lands here. Its page view, counted by cookieless Vercel Web
