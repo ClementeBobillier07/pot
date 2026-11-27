@@ -13,7 +13,8 @@ private let forest = Color(nsColor: NSColor(name: nil) { appearance in
 
 struct MainView: View {
     @ObservedObject var model: AppModel
-    @State private var dollars = false
+    /// One unit for the headline and the weekly chart; remembered between launches.
+    @AppStorage("showUSD") private var dollars = false
     @State private var selectedDate: Date?
     @State private var period: UsagePeriod = .today
     /// 0 = this week, 1 = last week, …
@@ -103,6 +104,14 @@ struct MainView: View {
         let headlineTokens = selected?.tokens ?? summary?.tokens
         let headlineUSD = selected.map { $0.estimatedUSD } ?? summary?.estimatedUSD
         let headlinePartial = selected?.partial ?? summary?.partial ?? false
+        let usd: Decimal? = headlineUSD ?? nil
+        // The unit toggle drives the big number too, so the headline and the chart always agree.
+        let headline: String = {
+            guard let tokens = headlineTokens else { return "…" }
+            return dollars ? usd.map { money($0) } ?? "—" : tokens.formatted()
+        }()
+        let noun = dollars ? (usd == nil && headlineTokens != nil ? "no verified rate" : "estimated USD") : "tokens"
+        let caption = selected.map { "\(noun) · " + $0.date.formatted(.dateTime.month(.abbreviated).day()) } ?? periodCaption(account, noun: noun)
         // Fixed composition: the plant has a stage with room to grow upward (the whole canvas,
         // bottom-aligned on the stats), and the statistics stay anchored at the bottom, so nothing
         // moves as the plant grows from seedling to full.
@@ -139,15 +148,21 @@ struct MainView: View {
                     ForEach(UsagePeriod.allCases) { Text($0.title).tag($0) }
                 }.pickerStyle(.segmented).labelsHidden().frame(width: 290).padding(.bottom, 6)
                 .onChange(of: period) { _, _ in selectedDate = nil }
-                Text(headlineTokens.map { $0.formatted() } ?? "…")
+                Text(headline)
                     .font(.system(size: 30, weight: .light, design: .rounded)).monospacedDigit()
                     .contentTransition(.numericText())
-                Text(selected.map { "tokens · " + $0.date.formatted(.dateTime.month(.abbreviated).day()) } ?? periodCaption(account))
+                    .animation(reduceMotion ? nil : .easeInOut(duration: 0.25), value: dollars)
+                Text(caption + (dollars && headlinePartial && usd != nil ? " · partial" : ""))
                     .font(.callout).foregroundStyle(.secondary)
                 HStack(spacing: 5) {
-                    Text(headlineTokens == nil ? "…" : money(headlineUSD ?? nil))
-                    Text("Estimated API value\(headlinePartial ? " · partial" : "")")
-                }.font(.caption).foregroundStyle(.secondary).padding(.top, 2)
+                    if dollars {
+                        // The other unit stays one line below, so nothing is lost when switching.
+                        Text(headlineTokens.map { "\($0.formatted()) tokens" } ?? "…")
+                    } else {
+                        Text(headlineTokens == nil ? "…" : money(usd))
+                        Text("Estimated API value\(headlinePartial ? " · partial" : "")")
+                    }
+                }.font(.caption).foregroundStyle(.secondary).padding(.top, 2).monospacedDigit()
                 .help("Reference API prices for the same tokens. Not your bill or subscription usage.")
             }.padding(.top, 18)
             VStack(spacing: 10) {
@@ -160,7 +175,7 @@ struct MainView: View {
                         .buttonStyle(.plain).foregroundStyle(.secondary).disabled(weekOffset == 0)
                         .accessibilityLabel("Next week")
                     Spacer()
-                    Picker("Chart unit", selection: $dollars) {
+                    Picker("Unit", selection: $dollars) {
                         Text("Tokens").tag(false); Text("USD").tag(true)
                     }.pickerStyle(.segmented).labelsHidden().frame(width: 132)
                 }
@@ -227,12 +242,12 @@ struct MainView: View {
             return "\(first.formatted(.dateTime.month(.abbreviated).day())) – \(last.formatted(.dateTime.day()))"
         }
     }
-    private func periodCaption(_ account: AccountSnapshot) -> String {
+    private func periodCaption(_ account: AccountSnapshot, noun: String) -> String {
         switch period {
-        case .today: return "tokens today"
-        case .week: return "tokens · last 7 days"
-        case .month: return "tokens · last 30 days"
-        case .all: return account.historyStart.map { "tokens · since " + $0.formatted(.dateTime.month(.abbreviated).day().year()) } ?? "tokens · all local history"
+        case .today: return "\(noun) today"
+        case .week: return "\(noun) · last 7 days"
+        case .month: return "\(noun) · last 30 days"
+        case .all: return account.historyStart.map { "\(noun) · since " + $0.formatted(.dateTime.month(.abbreviated).day().year()) } ?? "\(noun) · all local history"
         }
     }
     private func coverageLine(_ account: AccountSnapshot) -> String {
