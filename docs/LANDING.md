@@ -28,7 +28,7 @@ The counter appears only when at least one eligible installer exists. A real zer
 
 ## Privacy and hosting
 
-No analytics, cookies, third-party fonts, images, tracking scripts, user database or authentication service is configured. No Vercel analytics package is installed. Analytics remains explicitly unconfigured in `.env.example`; enabling any external service requires the owner's authorization and a reviewed privacy policy.
+Vercel Web Analytics is enabled with the owner's authorization (decision 32): `@vercel/analytics` in `app/layout.tsx`, served from the site's own `/_vercel/insights` path. It sets no cookies and reports aggregated page views, referrers, countries, browsers, operating systems and device types; Vercel filters bots. Every download button goes to `/download`, which records the visit and then starts the GitHub Releases download in the browser, so visits to `/download` measure download intent, and crawlers or link previews no longer fetch the DMG. Read the numbers in the Vercel dashboard → agentpots → Analytics. No third-party fonts, images, user database or authentication service is configured; any other external service still requires the owner's authorization and a reviewed privacy policy.
 
 Ready for ordinary Vercel Next.js hosting by selecting `landing` as the project root. **No project, public site, deployment, or scheduled job was created.** Robots indexing is disabled for the development build and should only be enabled after public release approval.
 

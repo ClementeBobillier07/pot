@@ -9,7 +9,7 @@ const faqs = [
   ['What kind of plant will I get?', 'Codex plants grow in a sage planter and Claude Code plants in terracotta. Beyond that, every seed is its own. You will find out as it grows.'],
   ['What does “Estimated API value” mean?', 'It estimates what supported token categories would be worth at documented public API reference prices for the model used. It is not your bill, your subscription cost, or the provider’s internal cost. Unknown models or incomplete usage are labeled unavailable or partial.'],
   ['What about multiple accounts?', 'Separate accounts can have separate plants when the local data identifies them. History without reliable account evidence stays in a clearly labeled local profile; Pot does not guess who owns it.'],
-  ['Does anything leave my Mac?', 'The native garden and usage processing are local. Pot does not upload conversations, code, or usage statistics. This website separately reads public GitHub release metadata to show actual installer downloads; no website analytics service is enabled.'],
+  ['Does anything leave my Mac?', 'The native garden and usage processing are local. Pot does not upload conversations, code, or usage statistics. Its once-a-day update check sends only Pot’s version number, and you can turn it off. This website uses cookieless Vercel Web Analytics to count visits and downloads by page, referrer, country and device type; it never identifies you.'],
   ['Which Macs and agents are supported?', 'Pot needs macOS 14 or later. It reads the local logs that the Codex app and CLI and Claude Code keep on your Mac, including compressed Codex archives. Cloud-only activity is not counted unless its logs are on your Mac.'],
 ];
 
