@@ -41,6 +41,7 @@ final class PotDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         model = AppModel()
         model.openMain = { [weak self] in self?.openMain() }
         panel = FloatingPlantController(model: model)
+        UpdateController.shared.isInUse = { [weak self] in self?.model.mainVisible ?? false }
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
         if let button = statusItem.button {
             button.image = NSImage(systemSymbolName: "leaf.fill", accessibilityDescription: "Pot")
@@ -93,6 +94,7 @@ final class PotDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         presentation.submenu = modes
         menu.addItem(presentation)
         menu.addItem(withTitle: "Settings…", action: #selector(showSettings), keyEquivalent: ",")
+        if UpdateController.shared.available { menu.addItem(withTitle: "Check for Updates…", action: #selector(checkForUpdates), keyEquivalent: "") }
         menu.addItem(.separator())
         menu.addItem(withTitle: "Quit Pot", action: #selector(quitPot), keyEquivalent: "q")
         for item in menu.items where item.action != nil { item.target = self }
@@ -123,6 +125,7 @@ final class PotDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     }
     @objc private func showMain() { openMain() }
     @objc private func showSettings() { model.showSettings = true; openMain() }
+    @objc private func checkForUpdates() { UpdateController.shared.checkNow() }
     @objc private func togglePlant() { model.toggleFloating() }
     @objc private func choosePresentation(_ sender: NSMenuItem) {
         guard let raw = sender.representedObject as? String, let mode = DisplayMode(rawValue: raw) else { return }

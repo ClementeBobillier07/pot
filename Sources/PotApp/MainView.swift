@@ -345,6 +345,7 @@ private struct OnboardingView: View {
 
 private struct SettingsView: View {
     @ObservedObject var model: AppModel
+    @ObservedObject private var updates = UpdateController.shared
     @State private var confirmErase = false
     var body: some View {
         Form {
@@ -378,14 +379,23 @@ private struct SettingsView: View {
                 Toggle("Launch at login", isOn: Binding(get: { model.launchAtLogin }, set: { model.setLaunchAtLogin($0) }))
                 Picker("Appearance", selection: $model.appearance) { Text("System").tag("system"); Text("Light").tag("light"); Text("Dark").tag("dark") }
             }
+            Section("Updates") {
+                Toggle("Update Pot automatically", isOn: Binding(get: { updates.automatic }, set: { updates.setAutomatic($0) }))
+                    .disabled(!updates.available)
+                if !updates.available {
+                    Text("Updates work in the installed app.").font(.caption).foregroundStyle(.secondary)
+                } else if updates.automatic {
+                    Text("Pot checks once a day and installs new versions on its own, after you close this window. It only sends its version number; your usage never leaves this Mac.")
+                        .font(.caption).foregroundStyle(.secondary)
+                } else {
+                    Button("Check for updates…") { updates.checkNow() }.disabled(!updates.canCheck)
+                    Text("Pot never checks on its own. Press the button to look for a new version.").font(.caption).foregroundStyle(.secondary)
+                }
+            }
             Section("About Pot") {
                 Text("Pot \(Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "development build") · A little plant on your Mac.")
                 Text("Usage and plants stay on this Mac. Records may contain conversations; Pot keeps only usage metrics. Prices are bundled reference rates, not your bill. Unknown models remain unpriced.")
                     .font(.caption).foregroundStyle(.secondary)
-                Button("Check for updates…") {
-                    NSWorkspace.shared.open(URL(string: "https://github.com/ClementeBobillier07/pot/releases")!)
-                }
-                Text("Opens GitHub in your browser. Pot does not install updates automatically.").font(.caption).foregroundStyle(.secondary)
                 Button("Export garden and daily totals…") { model.exportGarden() }.disabled(model.busy || model.snapshots.isEmpty)
                 Text("Saves a JSON file you control: daily token totals, estimated values and plant state. No conversations, paths or account identifiers.")
                     .font(.caption).foregroundStyle(.secondary)

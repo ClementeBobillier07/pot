@@ -1,6 +1,6 @@
 # Pot privacy and local data
 
-Pot has no user backend, sign-up, payment, remote database or telemetry client. The native target contains no network fetch implementation. Prices ship in a local catalog. Its garden can operate offline.
+Pot has no user backend, sign-up, payment, remote database or telemetry client. Its only network request is the update check described below. Prices ship in a local catalog. Its garden works offline.
 
 JSONL files can contain conversations and source code. Pot must transiently read complete JSON lines to find usage metadata; it discards content and stores only allowlisted timestamps, model identifiers, disjoint token counters, local profile identifiers, identity confidence represented by identified/unattributed profiles, cursors, deduplication metadata and procedural plant state. Errors never log raw lines. Paths selected for sources are local preferences, not analytics.
 
@@ -12,6 +12,6 @@ Preferences live in the app's UserDefaults domain `com.agentpots.pot`. The user 
 
 Local usage and dedup keys are retained; no automatic retention cleanup is implemented that could permit old events to be credited again. Statistics/biology query only a bounded recent window. The compressed archive format is not supported yet and reports partial coverage.
 
-Check for updates opens the repository's releases page in the user's default browser and installs nothing. Public website downloads use GitHub; those network services see ordinary request metadata. The website's release-counter API reads public asset counts only and receives no native account/usage data. The website has no enabled analytics, external fonts or tracking scripts. Next CLI telemetry is disabled in the supplied commands.
+Updates use Sparkle (MIT). With Settings → Updates → "Update Pot automatically" on (the default), Pot fetches `https://agentpots.com/appcast.xml` about once a day and, when a newer version is listed, downloads the DMG from GitHub Releases. It installs only an update signed with Pot's EdDSA key and the same Developer ID team, then relaunches once Pot's window is closed. The request carries Pot's version in the User-Agent; Sparkle's system profiling is disabled, and no usage, account or garden data is sent. Vercel and GitHub see ordinary request metadata such as the IP address. With the toggle off, Pot makes no network request unless the person presses "Check for updates…". Public website downloads use GitHub; those network services see ordinary request metadata. The website's release-counter API reads public asset counts only and receives no native account/usage data. The website has no enabled analytics, external fonts or tracking scripts. Next CLI telemetry is disabled in the supplied commands.
 
 Before publishing: observe traffic from the packaged app offline/online on a Mac, inspect its persisted files with synthetic sentinels, verify file permissions including WAL/SHM, and review this document against any new integration.

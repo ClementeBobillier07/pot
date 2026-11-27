@@ -115,6 +115,17 @@ done
 [[ "$FOUND_CORE_RESOURCES" == true ]] || fail "The PotCore resource bundle is missing from the Swift build."
 find "$APP/Contents/Resources/Pot_PotCore.bundle" -name prices-v1.json -type f -print -quit | /usr/bin/grep -q . || fail "The bundled price catalog is missing."
 
+# Sparkle (decision 31) ships as a universal framework; one copy serves every slice.
+SPARKLE_SOURCE="${BIN_PATHS[0]}/Sparkle.framework"
+[[ -d "$SPARKLE_SOURCE" ]] || fail "Sparkle.framework is missing from the Swift build."
+mkdir -p "$APP/Contents/Frameworks"
+ditto "$SPARKLE_SOURCE" "$APP/Contents/Frameworks/Sparkle.framework"
+SPARKLE_LICENSE="$ROOT/.build/distribution/${ARCHITECTURES[0]}/artifacts/sparkle/Sparkle/LICENSE"
+[[ -f "$SPARKLE_LICENSE" ]] || fail "Sparkle's license file is missing."
+cp "$SPARKLE_LICENSE" "$APP/Contents/Resources/Sparkle-LICENSE.txt"
+LOAD_COMMANDS=$(otool -l "$APP/Contents/MacOS/Pot") # captured: grep -q would close the pipe early under pipefail
+[[ "$LOAD_COMMANDS" == *"@executable_path/../Frameworks"* ]] || fail "Pot is missing the Frameworks rpath."
+
 xcrun swift "$ROOT/scripts/generate-icon.swift" "$STAGING/Pot.iconset"
 xcrun iconutil --convert icns "$STAGING/Pot.iconset" --output "$APP/Contents/Resources/Pot.icns"
 for TARGET_ARCH in "${ARCHITECTURES[@]}"; do
@@ -122,13 +133,21 @@ for TARGET_ARCH in "${ARCHITECTURES[@]}"; do
 done
 
 if [[ -n "${POT_SIGN_IDENTITY:-}" ]]; then
-    codesign --force --options runtime --timestamp --sign "$POT_SIGN_IDENTITY" "$APP"
+    SIGN=(codesign --force --options runtime --timestamp --sign "$POT_SIGN_IDENTITY")
     VARIANT="signed"
 else
     # A local ad-hoc signature is not a Developer ID release and cannot be notarized.
-    codesign --force --sign - "$APP"
+    SIGN=(codesign --force --sign -)
     VARIANT="local"
 fi
+# Inside-out, as Sparkle documents for Developer ID: helpers, then the framework, then Pot.
+SPARKLE="$APP/Contents/Frameworks/Sparkle.framework"
+"${SIGN[@]}" "$SPARKLE/Versions/B/XPCServices/Installer.xpc"
+"${SIGN[@]}" --preserve-metadata=entitlements "$SPARKLE/Versions/B/XPCServices/Downloader.xpc"
+"${SIGN[@]}" "$SPARKLE/Versions/B/Autoupdate"
+"${SIGN[@]}" "$SPARKLE/Versions/B/Updater.app"
+"${SIGN[@]}" "$SPARKLE"
+"${SIGN[@]}" "$APP"
 codesign --verify --deep --strict --verbose=2 "$APP"
 DESTINATION="$OUTPUT/Pot-$VERSION-$ARCH-$VARIANT.app"
 [[ ! -e "$DESTINATION" ]] || fail "Output already exists: $DESTINATION. Choose a new output directory."

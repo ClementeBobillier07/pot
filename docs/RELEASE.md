@@ -49,6 +49,19 @@ Then on a **different, clean Mac** (or a fresh user account): download the DMG t
 3. Landing: set `POT_GITHUB_REPOSITORY=ClementeBobillier07/pot` (see `landing/.env.example`), deploy (Vercel or any Node host), verify the download button resolves to the release asset and the counter shows only eligible DMG downloads.
 4. Smoke test the public download link from a clean Mac once more.
 
+## 3b. Every later version: automatic update (decision 31)
+
+Since v0.1.1, installed copies update themselves from `https://agentpots.com/appcast.xml`.
+
+1. Raise both numbers: `--version 0.1.2 --build 3`. Sparkle compares the build number (`CFBundleVersion`); it must always grow.
+2. Build, sign, notarize and staple as in section 2, then publish the GitHub Release `vX.Y.Z` with the DMG (section 3).
+3. Write the release notes as a short HTML fragment (`<ul><li>…</li></ul>`), then sign the update and write the appcast:
+   ```bash
+   scripts/appcast.sh 0.1.2 3 /tmp/pot-0.1.2/Pot-0.1.2-macOS-universal.dmg notes.html
+   ```
+   It signs with the Sparkle key in the login keychain (account `com.agentpots.pot`) and writes `landing/public/appcast.xml`. Back up that key once: `.build/artifacts/sparkle/Sparkle/bin/generate_keys --account com.agentpots.pot -x pot-sparkle-key.txt`, then store the file somewhere safe outside the repo. Without it, no further update can reach installed copies.
+4. Only after the GitHub asset URL works: commit `landing/public/appcast.xml` and merge to `main`. Vercel deploys it, and every Pot with automatic updates installs the version within about a day.
+
 ## 4. After release
 
 - Watch issues for format changes in Codex / Claude Code (adapters mark coverage partial rather than miscount).

@@ -8,7 +8,7 @@
 - Historical usage without per-event account evidence stays in an unattributed local profile. Current login identity does not prove ownership of historical events.
 - No fictional live data, fake downloads or invented prices. Synthetic fixtures/simulations belong only in tests or the development executable.
 - Transactions must commit log cursors and events together. Deduplicate across restarts and copied logs. Treat malformed/unknown data as incomplete, not inactivity.
-- Pure PotCore must compile on macOS and Linux. AppKit/SwiftUI belong only to PotApp. Production app has no network client.
+- Pure PotCore must compile on macOS and Linux. AppKit/SwiftUI belong only to PotApp. The production app's only network client is Sparkle's signed update check (decision 31): it sends no usage, accounts or system profile, and Settings can turn it off.
 - Validate core with `swift test`; landing with its tests, TypeScript and production build; macOS UI with Xcode/macOS. Do not claim macOS verification from Linux.
 - Use system SQLite only. Avoid additional runtime dependencies in the macOS product.
 - Respect reduced motion, keep organ counts bounded, separate historical maturity from recoverable health, never reward repeated imports or backwards clock changes.
