@@ -123,7 +123,8 @@ ditto "$SPARKLE_SOURCE" "$APP/Contents/Frameworks/Sparkle.framework"
 SPARKLE_LICENSE="$ROOT/.build/distribution/${ARCHITECTURES[0]}/artifacts/sparkle/Sparkle/LICENSE"
 [[ -f "$SPARKLE_LICENSE" ]] || fail "Sparkle's license file is missing."
 cp "$SPARKLE_LICENSE" "$APP/Contents/Resources/Sparkle-LICENSE.txt"
-otool -l "$APP/Contents/MacOS/Pot" | /usr/bin/grep -q "@executable_path/../Frameworks" || fail "Pot is missing the Frameworks rpath."
+LOAD_COMMANDS=$(otool -l "$APP/Contents/MacOS/Pot") # captured: grep -q would close the pipe early under pipefail
+[[ "$LOAD_COMMANDS" == *"@executable_path/../Frameworks"* ]] || fail "Pot is missing the Frameworks rpath."
 
 xcrun swift "$ROOT/scripts/generate-icon.swift" "$STAGING/Pot.iconset"
 xcrun iconutil --convert icns "$STAGING/Pot.iconset" --output "$APP/Contents/Resources/Pot.icns"
