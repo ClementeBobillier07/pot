@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="utf-8"?>
+<rss version="2.0" xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle">
+  <channel>
+    <title>Pot</title>
+    <link>https://agentpots.com/appcast.xml</link>
+    <language>en</language>
+    <item>
+      <title>Pot 0.1.1</title>
+      <pubDate>Fri, 27 Nov 2026 18:07:07 +0000</pubDate>
+      <sparkle:version>2</sparkle:version>
+      <sparkle:shortVersionString>0.1.1</sparkle:shortVersionString>
+      <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
+      <description><![CDATA[
+<h2>Pot now updates itself</h2>
+<ul>
+  <li>New versions install automatically: Pot checks once a day and installs when its window is closed.</li>
+  <li>Prefer to choose? Settings → Updates → turn off <em>Update Pot automatically</em> and use <em>Check for updates…</em>.</li>
+  <li>Updates are verified with Pot's own signature. The check sends only the version number.</li>
+</ul>
+      ]]></description>
+      <enclosure url="https://github.com/ClementeBobillier07/pot/releases/download/v0.1.1/Pot-0.1.1-macOS-universal.dmg" type="application/octet-stream" sparkle:edSignature="81DvsP8m3xQek+AQgKu9Szpi/dm5DTzQV0A/Tn73WBlzl2nbX+a8lQJ2+FQ+K9JDGTKuOh0Hx4bogcinfohVCw==" length="2875712" />
+    </item>
+  </channel>
+</rss>
